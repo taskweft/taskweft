@@ -1,12 +1,9 @@
 defmodule Taskweft.Solve do
   @moduledoc """
-  High-level helpers for invoking solver-providing peer MCP servers
-  configured under `:taskweft, :mcp_peers`.
-
-  The peers themselves are owned by their respective MCP servers — we
-  only orchestrate. `minizinc/2` is the canonical example: it forwards
-  to a configured `:minizinc` peer that provides the `minizinc_solve`
-  tool (e.g. `V-Sekai-fire/minizinc-mcp` running locally).
+  High-level helpers for invoking peer MCP servers configured under
+  `:taskweft, :mcp_peers`. `minizinc/2` forwards to the configured
+  `:minizinc` peer (e.g. `V-Sekai-fire/minizinc-mcp`) and calls its
+  `minizinc_solve` tool.
 
   ## Configured peers
 
@@ -19,9 +16,8 @@ defmodule Taskweft.Solve do
   ## Lifecycle
 
   Each call connects to the peer, invokes the tool, and disconnects.
-  No long-lived peer process is held — connections are cheap-enough at
-  ~10ms stdio handshake. If you need lower per-call latency, hold a
-  client yourself via `Taskweft.MCP.Client.connect/1` and reuse it.
+  Each call pays a ~10ms stdio handshake. For lower latency, hold a
+  client via `Taskweft.MCP.Client.connect/1` and reuse it.
   """
 
   alias Taskweft.MCP.Client

@@ -2,22 +2,45 @@ defmodule Taskweft.MCP.Server do
   @moduledoc """
   MCP server for Taskweft.
 
-  Public surface:
-    * 3 tools — `plan`, `replan`, `simulate` (NIF-backed).
-    * Resources — every `.jsonld` under `priv/plans/{domains,problems}` as
-      `taskweft://domains/<file>` and `taskweft://problems/<file>`.
-    * Prompts — stored skills and per-tool sample workflows.
+  Start with `mix taskweft.mcp`; speaks stdio MCP.
 
-  Temporal validation is a property of `plan`'s output, so `check_temporal`
-  is not exposed. ReBAC, bridge, and cache NIF entrypoints are intentionally
-  not exposed.
+  ## Tools
 
-  ## Resource enumeration
+  | Tool | Description |
+  |------|-------------|
+  | `plan` | Run the HTN planner over a JSON-LD domain |
+  | `replan` | Recover from a failed plan step |
+  | `simulate` | Monte Carlo simulate a plan with stochastic action failure |
+  | `solve_minizinc` | Forward a MiniZinc model to the configured minizinc peer |
 
-  The `defresource` entries are generated at compile time by walking
-  `priv/plans/{domains,problems}/`. The `ExMCP.Server` DSL serves
-  `resources/list` from those static entries — `handle_resource_list/1` is
-  not dispatched. New JSON-LD files require `mix compile` to register.
+  `check_temporal` is not exposed; temporal validity is checked on the
+  plan output. ReBAC, bridge, and cache NIF entrypoints are not exposed.
+
+  ## Resources
+
+  Every `.jsonld` under `priv/plans/{domains,problems}` is exposed as
+  `taskweft://domains/<file>` and `taskweft://problems/<file>`. The
+  `defresource` entries are generated at compile time — new JSON-LD files
+  require `mix compile` to register.
+
+  ## Calling from DSPy (training time)
+
+  DSPy's MCP integration lets Python optimization loops (GEPA,
+  BootstrapFewShot, etc.) call these tools directly:
+
+  ```python
+  import dspy
+
+  mcp = dspy.MCP("http://localhost:4000/mcp")  # or stdio transport
+
+  plan_tool     = mcp.tool("plan")
+  replan_tool   = mcp.tool("replan")
+  simulate_tool = mcp.tool("simulate")
+
+  class PlanModule(dspy.Module):
+      def forward(self, domain_json):
+          return plan_tool(domain_json=domain_json)
+  ```
   """
 
   use ExMCP.Server
