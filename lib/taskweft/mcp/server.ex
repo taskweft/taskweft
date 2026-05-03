@@ -86,6 +86,30 @@ defmodule Taskweft.MCP.Server do
     })
   end
 
+  deftool "solve_minizinc" do
+    meta do
+      name("Solve MiniZinc problem (via peer MCP)")
+
+      description(
+        "Solve a MiniZinc constraint/optimization model by forwarding to the configured `:minizinc` peer MCP server (typically `V-Sekai-fire/minizinc-mcp`). Pass the .mzn model content (and optional .dzn data) as strings. The peer chooses the solver from the bundled set (HiGHS / Chuffed / Gecode / OR-Tools CP-SAT). Requires the peer's host to have the `minizinc` binary on PATH."
+      )
+    end
+
+    input_schema(%{
+      type: "object",
+      properties: %{
+        model: %{type: "string", description: "MiniZinc .mzn model content"},
+        data: %{type: "string", description: "Optional .dzn data content"},
+        timeout_ms: %{
+          type: "integer",
+          description: "Solver wall-clock budget in milliseconds (default 30000)",
+          default: 30_000
+        }
+      },
+      required: ["model"]
+    })
+  end
+
   # ---------- RESOURCES ----------
 
   @plans_root Path.join([__DIR__, "..", "..", "..", "priv", "plans"]) |> Path.expand()
@@ -188,6 +212,28 @@ defmodule Taskweft.MCP.Server do
         state
       ) do
     text_result(NIF.mc_execute(d, p, probs, seed), state)
+  end
+
+  def handle_tool_call("solve_minizinc", %{"model" => model} = args, state) do
+    opts =
+      []
+      |> then(fn o ->
+        case Map.get(args, "data") do
+          nil -> o
+          data -> Keyword.put(o, :data, data)
+        end
+      end)
+      |> then(fn o ->
+        case Map.get(args, "timeout_ms") do
+          nil -> o
+          ms -> Keyword.put(o, :timeout_ms, ms)
+        end
+      end)
+
+    case Taskweft.Solve.minizinc(model, opts) do
+      {:ok, solution} -> text_result(Jason.encode!(solution), state)
+      {:error, reason} -> {:error, inspect(reason), state}
+    end
   end
 
   def handle_tool_call(name, _args, state),
