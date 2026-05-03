@@ -4,13 +4,8 @@ Guidance for AI coding agents working in this submodule.
 
 ## What this is
 
-Elixir library wrapping a C++20 HTN planner NIF. Provides planning, replanning,
-temporal consistency checking, HRR (Holographic Reduced Representation) encoding
-for semantic memory, and ReBAC (relationship-based access control) checks.
-Used by `multiplayer-fabric-artifacts-mmog` and `multiplayer-fabric-zone-console`.
-
-A breaking API change here requires coordinated updates in both consumers
-before either is released.
+Elixir library wrapping a C++20 HTN planner NIF. See `Taskweft` moduledoc
+(`lib/taskweft.ex`) for the full module map and domain JSON format notes.
 
 ## Build and test
 
@@ -19,70 +14,12 @@ mix compile           # compiles C++ NIF via elixir_make
 mix test --include property   # ExUnit + PropCheck property tests
 ```
 
-## Key files
+## MCP
 
-| Path | Purpose |
-|------|---------|
-| `mix.exs` | Deps: elixir_make, exqlite, jason, propcheck |
-| `lib/taskweft.ex` | Public API: `plan/1`, `replan/3`, `check_temporal/3`, HRR ops, ReBAC |
-| `c_src/taskweft_nif.cpp` | NIF entry points |
-| `c_src/tw_planner.hpp` | C++20 HTN planner core |
-| `c_src/tw_hrr.hpp` | HRR phase-vector encoding/binding |
-| `c_src/tw_rebac.hpp` | ReBAC graph traversal |
-| `c_src/tw_temporal.hpp` | ISO 8601 temporal constraint checking |
-| `standalone/` | Header-only C++ standalone (used by multiplayer-fabric-sandbox) |
+Two call paths — see `Taskweft.MCP.Server` moduledoc for details:
 
-## Domain JSON format
-
-Domains are JSON-LD documents. See `standalone/tw_domain.hpp` and
-`priv/plans/` in `multiplayer-fabric-artifacts-mmog` for examples.
-The `"op"` field syntax (`"add"`, `"get"`) must match what `domain.ex`
-emits — do not revert to the old `"type": "math/add"` form.
-
-## MCP integration
-
-Taskweft exposes its planner over MCP and can also act as an MCP client. There are two
-distinct call paths:
-
-### Runtime — ExMCP (Elixir)
-
-Used during live agent execution. Start the server with `mix taskweft.mcp`; it speaks
-stdio MCP and exposes three tools:
-
-| Tool | Description |
-|------|-------------|
-| `plan` | Run the HTN planner over a JSON-LD domain |
-| `replan` | Recover from a failed plan step |
-| `simulate` | Monte Carlo simulate a plan with stochastic action failure |
-
-The Elixir client side (`Taskweft.MCP.Client`, `Taskweft.Solve`) connects to peer
-servers configured under `:taskweft, :mcp_peers` (see `config/runtime.exs`). The
-minizinc peer is pre-configured and reached via `Taskweft.Solve.minizinc/2`.
-
-### Training time — DSPy (Python)
-
-Used during offline optimization loops (e.g. GEPA, BootstrapFewShot). DSPy's MCP
-integration lets Python training code call the same MCP server tools:
-
-```python
-import dspy
-
-# Point DSPy at the running Taskweft MCP server
-mcp = dspy.MCP("http://localhost:4000/mcp")   # or stdio transport
-
-plan_tool   = mcp.tool("plan")
-replan_tool = mcp.tool("replan")
-simulate_tool = mcp.tool("simulate")
-
-# Use inside any DSPy module / optimizer
-class PlanModule(dspy.Module):
-    def forward(self, domain_json):
-        return plan_tool(domain_json=domain_json)
-```
-
-This means the same planner that runs in production can be called from DSPy optimizers
-(`BootstrapFewShot`, GEPA genetic loop, etc.) to generate training traces, score
-candidates, and evolve instructions — without any extra adapter layer.
+- **Runtime**: `mix taskweft.mcp` starts the stdio server; `Taskweft.MCP.Client` and `Taskweft.Solve` call peer servers.
+- **Training time**: DSPy calls these tools from Python optimization loops (GEPA, BootstrapFewShot).
 
 ## Conventions
 

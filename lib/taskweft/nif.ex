@@ -1,4 +1,31 @@
 defmodule Taskweft.NIF do
+  @moduledoc """
+  Raw NIF bindings for the Taskweft C++20 planner.
+
+  Prefer the higher-level modules (`Taskweft`, `Taskweft.ReBAC`,
+  `Taskweft.MCExecutor`) over calling these directly.
+
+  ## HRR type boundary
+
+  HRR NIF input/output types:
+
+  | NIF | Input | Output |
+  |-----|-------|--------|
+  | `hrr_encode_atom/2` | string, dim | phases |
+  | `hrr_encode_text/2` | string, dim | phases |
+  | `hrr_phases_to_bytes/1` | phases | bytes |
+  | `hrr_bytes_to_phases/2` | bytes, 0 | phases |
+  | `hrr_bind/2` | bytes, bytes | bytes |
+  | `hrr_unbind/2` | bytes, bytes | bytes |
+  | `hrr_bundle/1` | [bytes] | bytes |
+  | `hrr_similarity/2` | phases, phases | float |
+
+  Phases are lists of floats (radians); bytes are Erlang binaries
+  (little-endian float64 arrays). `hrr_similarity` takes phases only;
+  passing bytes produces garbage similarity scores. Convert explicitly
+  at each call site.
+  """
+
   @on_load :__on_load__
 
   def __on_load__ do

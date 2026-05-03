@@ -1,12 +1,7 @@
 defmodule Taskweft.MCP.Client do
   @moduledoc """
-  MCP client wrapper around `ExMCP.Client`. Lets taskweft act as a *peer*
-  to other MCP servers (e.g. solver-providing servers like
-  `minizinc-mcp`, or any other tool-providing server) — connecting to
-  them, listing their tools, and invoking those tools by name.
-
-  This module exists so taskweft can compose with other MCP servers
-  without taking on those servers' implementation responsibilities.
+  MCP client wrapper around `ExMCP.Client`. Connects to peer MCP servers,
+  lists their tools, and invokes them by name.
 
   ## Connection specs
 
