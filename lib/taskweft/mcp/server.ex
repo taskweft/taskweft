@@ -135,7 +135,7 @@ defmodule Taskweft.MCP.Server do
 
   # ---------- RESOURCES ----------
 
-  @plans_root Path.join([__DIR__, "..", "..", "..", "priv", "plans"]) |> Path.expand()
+  @plans_root Path.join(:code.priv_dir(:taskweft_plans) |> to_string(), "plans") |> Path.expand()
 
   for kind <- ["domains", "problems"] do
     dir = Path.join(@plans_root, kind)
@@ -411,7 +411,7 @@ defmodule Taskweft.MCP.Server do
 
   defp domains_dir, do: Path.join([priv_plans(), "domains"])
   defp problems_dir, do: Path.join([priv_plans(), "problems"])
-  defp priv_plans, do: Path.join(:code.priv_dir(:taskweft) |> to_string(), "plans")
+  defp priv_plans, do: Path.join(:code.priv_dir(:taskweft_plans) |> to_string(), "plans")
 
   defp prompt_work_queue do
     """

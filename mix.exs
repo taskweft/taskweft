@@ -18,6 +18,7 @@ defmodule Taskweft.MCP.MixProject do
   defp deps do
     [
       {:taskweft_nif, github: "V-Sekai-fire/taskweft-nif"},
+      {:taskweft_plans, github: "V-Sekai-fire/taskweft-plans"},
       {:taskweft_mcp_client, github: "V-Sekai-fire/taskweft-mcp-client"},
       {:ex_mcp, "~> 0.9"},
       {:jason, "~> 1.4"},
