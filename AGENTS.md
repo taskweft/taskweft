@@ -39,6 +39,51 @@ Domains are JSON-LD documents. See `standalone/tw_domain.hpp` and
 The `"op"` field syntax (`"add"`, `"get"`) must match what `domain.ex`
 emits — do not revert to the old `"type": "math/add"` form.
 
+## MCP integration
+
+Taskweft exposes its planner over MCP and can also act as an MCP client. There are two
+distinct call paths:
+
+### Runtime — ExMCP (Elixir)
+
+Used during live agent execution. Start the server with `mix taskweft.mcp`; it speaks
+stdio MCP and exposes three tools:
+
+| Tool | Description |
+|------|-------------|
+| `plan` | Run the HTN planner over a JSON-LD domain |
+| `replan` | Recover from a failed plan step |
+| `simulate` | Monte Carlo simulate a plan with stochastic action failure |
+
+The Elixir client side (`Taskweft.MCP.Client`, `Taskweft.Solve`) connects to peer
+servers configured under `:taskweft, :mcp_peers` (see `config/runtime.exs`). The
+minizinc peer is pre-configured and reached via `Taskweft.Solve.minizinc/2`.
+
+### Training time — DSPy (Python)
+
+Used during offline optimization loops (e.g. GEPA, BootstrapFewShot). DSPy's MCP
+integration lets Python training code call the same MCP server tools:
+
+```python
+import dspy
+
+# Point DSPy at the running Taskweft MCP server
+mcp = dspy.MCP("http://localhost:4000/mcp")   # or stdio transport
+
+plan_tool   = mcp.tool("plan")
+replan_tool = mcp.tool("replan")
+simulate_tool = mcp.tool("simulate")
+
+# Use inside any DSPy module / optimizer
+class PlanModule(dspy.Module):
+    def forward(self, domain_json):
+        return plan_tool(domain_json=domain_json)
+```
+
+This means the same planner that runs in production can be called from DSPy optimizers
+(`BootstrapFewShot`, GEPA genetic loop, etc.) to generate training traces, score
+candidates, and evolve instructions — without any extra adapter layer.
+
 ## Conventions
 
 - All Elixir public functions return `{:ok, value}` or `{:error, reason}`.
