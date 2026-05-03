@@ -26,6 +26,8 @@ defmodule Taskweft.MixProject do
   defp deps do
     [
       {:taskweft_nif, github: "V-Sekai-fire/taskweft-nif"},
+      {:taskweft_rebac, github: "V-Sekai-fire/taskweft-rebac"},
+      {:taskweft_mcp_client, github: "V-Sekai-fire/taskweft-mcp-client"},
       {:ex_mcp, "~> 0.9"},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:propcheck, "~> 1.4", only: [:test, :dev], runtime: false},
