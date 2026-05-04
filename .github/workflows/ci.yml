@@ -48,3 +48,22 @@ jobs:
 
       - name: Run tests
         run: mix test --trace
+
+  lean:
+    name: lake build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Lean (elan)
+        uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: lean
+          build: false
+          test: false
+          lint: false
+
+      - name: lake build
+        working-directory: lean
+        run: lake build
