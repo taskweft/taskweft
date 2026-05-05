@@ -50,6 +50,5 @@ static_files = [
   "./functions/taskweft-edge/bundle.avm",
   "./functions/taskweft-edge/AtomVM.wasm",
   "./functions/taskweft-edge/AtomVM.mjs",
-  "./functions/taskweft-edge/popcorn.js",
   "./functions/taskweft-edge/popcorn_iframe.js",
 ]

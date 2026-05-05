@@ -20,18 +20,25 @@ defmodule Taskweft.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger]]
+    [
+      mod: {Taskweft.EdgeApp, []},
+      extra_applications: [:logger]
+    ]
   end
 
   defp deps do
     [
       # NIF-free V-Sekai deps — taskweft_nif, taskweft_rebac, and taskweft_mcp
       # replaced by pure Elixir in lib/taskweft/ (no C NIFs, no exqlite, no jaxon).
-      {:taskweft_mcp_client, github: "V-Sekai-fire/taskweft-mcp-client"},
+      # runtime: false keeps these OUT of the OTP application graph so Popcorn
+      # does not pull :ssl/:inets into the AtomVM bundle (the edge function
+      # connects to Supabase via Deno networking, not Erlang/OTP ssl).
+      {:taskweft_mcp_client, github: "V-Sekai-fire/taskweft-mcp-client", runtime: false},
 
-      # Supabase Postgres — replaces exqlite/SQLite.
-      {:ecto_sql, "~> 3.13"},
-      {:postgrex, "~> 0.22"},
+      # Supabase Postgres — used in the BEAM deployment; runtime: false so
+      # Popcorn WASM cook doesn't transitively include :ssl in the bundle.
+      {:ecto_sql, "~> 3.13", runtime: false},
+      {:postgrex, "~> 0.22", runtime: false},
 
       # Pure Elixir JSON — AtomVM-compatible.
       {:jason, "~> 1.4"},

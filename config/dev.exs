@@ -6,5 +6,8 @@ import Config
 config :popcorn,
   out_dir: "supabase/functions/taskweft-edge",
   start: Taskweft.Edge,
-  extra_apps: [:inets, :ssl, :public_key, :crypto, :eex, :asn1],
-  runtime: {:path, "popcorn_runtime_source/artifacts/wasm", target: :wasm}
+  # Use Popcorn's pre-built FissionVM runtime: :ssl, :inets, :public_key,
+  # :crypto, :asn1 are compiled as native C into that runtime — no BEAM
+  # bytecode needed, no :ssl crash.  Custom runtime only when you need
+  # >16 MB heap (then rebuild via scripts/patch_atomvm_deno.sh).
+  extra_apps: [:inets, :ssl, :public_key, :crypto, :eex, :asn1]
