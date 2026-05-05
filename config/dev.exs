@@ -6,4 +6,5 @@ import Config
 config :popcorn,
   out_dir: "supabase/functions/taskweft-edge",
   start: Taskweft.Edge,
-  extra_apps: [:inets, :ssl, :public_key, :crypto, :eex, :asn1]
+  extra_apps: [:inets, :ssl, :public_key, :crypto, :eex, :asn1],
+  runtime: {:path, "popcorn_runtime_source/artifacts/wasm", target: :wasm}

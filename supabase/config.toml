@@ -37,14 +37,19 @@ policy = "oneshot"
 inspector_port = 8083
 
 # taskweft-edge: Elixir planning logic compiled to AtomVM WebAssembly via Popcorn.
-# Generate the WASM artifacts first with:
-#   mix deps.get
-#   mix popcorn.cook
-# Then deploy with:
-#   supabase functions deploy taskweft-edge
+#
+# Build artifacts (run with OTP 26.0.2 + Elixir 1.17.3 via `mise install`):
+#   mix popcorn.build_runtime --target wasm   # one-time, builds AtomVM.wasm
+#   mix popcorn.cook --include-vm             # bundle.avm + VM artifacts
+#
+# Runtime blocker: popcorn.js uses <iframe> + postMessage (browser-only).
+# Deno has no DOM. Porting the bridge to a Deno Worker is the next step
+# before `supabase functions deploy taskweft-edge` can serve real traffic.
 [functions.taskweft-edge]
 static_files = [
-  "./functions/taskweft-edge/taskweft.avm",
-  "./functions/taskweft-edge/atomvm.wasm",
-  "./functions/taskweft-edge/atomvm.js",
+  "./functions/taskweft-edge/bundle.avm",
+  "./functions/taskweft-edge/AtomVM.wasm",
+  "./functions/taskweft-edge/AtomVM.mjs",
+  "./functions/taskweft-edge/popcorn.js",
+  "./functions/taskweft-edge/popcorn_iframe.js",
 ]
