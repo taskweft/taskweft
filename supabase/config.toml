@@ -1,0 +1,50 @@
+# Supabase project configuration.
+# Project ref: hglmgarxgfgtxlmexkfp
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+jwt_expiry = 3600
+enable_signup = true
+
+[edge_runtime]
+enabled = true
+policy = "oneshot"
+inspector_port = 8083
+
+# taskweft-edge: Elixir planning logic compiled to AtomVM WebAssembly via Popcorn.
+# Generate the WASM artifacts first with:
+#   mix deps.get
+#   mix popcorn.cook
+# Then deploy with:
+#   supabase functions deploy taskweft-edge
+[functions.taskweft-edge]
+static_files = [
+  "./functions/taskweft-edge/taskweft.avm",
+  "./functions/taskweft-edge/atomvm.wasm",
+  "./functions/taskweft-edge/atomvm.js",
+]

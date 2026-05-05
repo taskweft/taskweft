@@ -33,7 +33,10 @@ defmodule Taskweft.MixProject do
       {:propcheck, "~> 1.4", only: [:test, :dev], runtime: false},
       {:mox, "~> 1.2", only: :test},
       {:benchee, "~> 1.3", only: :dev, runtime: false},
-      {:timex, "~> 3.7", only: :test}
+      {:timex, "~> 3.7", only: :test},
+      # Popcorn: compiles Elixir to AtomVM WASM for browser/edge targets.
+      # Run `mix popcorn.cook` after `mix deps.get` to generate WASM artifacts.
+      {:popcorn, "~> 0.2", only: :dev, runtime: false}
     ]
   end
 end
