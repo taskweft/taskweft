@@ -26,8 +26,7 @@ defmodule Taskweft.MixProject do
   defp deps do
     [
       # NIF-free V-Sekai deps — taskweft_nif, taskweft_rebac, and taskweft_mcp
-      # have been replaced by pure Elixir implementations in lib/taskweft/ so
-      # this project compiles under AtomVM/Popcorn (no C NIFs, no exqlite, no jaxon).
+      # replaced by pure Elixir in lib/taskweft/ (no C NIFs, no exqlite, no jaxon).
       {:taskweft_mcp_client, github: "V-Sekai-fire/taskweft-mcp-client"},
 
       # Supabase Postgres — replaces exqlite/SQLite.
@@ -42,11 +41,12 @@ defmodule Taskweft.MixProject do
       {:propcheck, "~> 1.4", only: [:test, :dev], runtime: false},
       {:mox, "~> 1.2", only: :test},
       {:benchee, "~> 1.3", only: :dev, runtime: false},
-      {:timex, "~> 3.7", only: :test}
+      {:timex, "~> 3.7", only: :test},
 
-      # Popcorn (Elixir -> AtomVM WASM) requires OTP 26.0.2 + Elixir 1.17.3 exactly.
-      # Switch with `asdf install` / `mise use`, then add:
-      # {:popcorn, "~> 0.2", only: :dev, runtime: false}
+      # Popcorn (Elixir -> AtomVM WASM) — requires OTP 26.0.2 + Elixir 1.17.3.
+      # .mise.toml pins those versions. With the right toolchain active, run:
+      #   mix deps.get && mix popcorn.cook
+      {:popcorn, "~> 0.2", only: :dev, runtime: false}
     ]
   end
 end

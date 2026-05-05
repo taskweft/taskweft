@@ -5,4 +5,5 @@ import Config
 # The unix target can be used for local testing: `mix popcorn.cook --target unix`
 config :popcorn,
   out_dir: "supabase/functions/taskweft-edge",
-  start: Taskweft.Edge
+  start: Taskweft.Edge,
+  extra_apps: [:inets, :ssl, :public_key, :crypto, :eex, :asn1]
