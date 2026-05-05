@@ -1,0 +1,15 @@
+[tools]
+# Default toolchain — works for normal BEAM development and tests.
+erlang = "27"
+elixir = "1.19"
+
+# Popcorn 0.2.x requires exactly OTP 26.0.2 + Elixir 1.17.3.
+# Uncomment and run `mise install` when doing a Popcorn WASM build:
+# erlang = "26.0.2"
+# elixir = "1.17.3"
+#
+# Then:
+#   mix deps.get
+#   # Uncomment {:popcorn, ...} in mix.exs, then:
+#   mix popcorn.cook
+#   supabase functions deploy taskweft-edge
