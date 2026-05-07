@@ -74,11 +74,19 @@ defmodule Taskweft.JSONLD.Loader do
 
   @doc """
   Validate that a decoded JSON-LD document is a well-formed planning domain.
+
+  Runs in order: `@type`, `name`, top-level field shapes, action/method
+  call arity, variable substitution references. The first failure is
+  returned; subsequent checks rely on the shape established by earlier
+  ones (e.g. arity assumes `actions` is a map).
   """
   @spec validate(map(), map()) :: :ok | {:error, String.t()}
   def validate(doc, _ctx) when is_map(doc) do
     with :ok <- check_type(doc["@type"]),
-         :ok <- check_name(doc["name"]) do
+         :ok <- check_name(doc["name"]),
+         :ok <- check_shape(doc),
+         :ok <- check_arity(doc),
+         :ok <- check_var_refs(doc) do
       :ok
     end
   end
@@ -93,6 +101,177 @@ defmodule Taskweft.JSONLD.Loader do
 
   defp check_name(name) when is_binary(name), do: :ok
   defp check_name(_), do: {:error, ~s(domain document must have a string "name" field)}
+
+  # Top-level field shapes — only checked if the field is present, since
+  # vocabulary-style domains may legitimately omit actions/methods/tasks.
+  defp check_shape(doc) do
+    with :ok <- check_field(doc, "actions", &is_map/1, "object"),
+         :ok <- check_field(doc, "variables", &is_list/1, "array"),
+         :ok <- check_field(doc, "methods", &is_map/1, "object"),
+         :ok <- check_field(doc, "tasks", &is_list/1, "array") do
+      :ok
+    end
+  end
+
+  defp check_field(doc, key, predicate, expected_label) do
+    case Map.fetch(doc, key) do
+      :error ->
+        :ok
+
+      {:ok, value} ->
+        if predicate.(value),
+          do: :ok,
+          else: {:error, "expected #{key} to be #{expected_label}, got #{json_type(value)}"}
+    end
+  end
+
+  defp json_type(v) when is_map(v), do: "object"
+  defp json_type(v) when is_list(v), do: "array"
+  defp json_type(v) when is_binary(v), do: "string"
+  defp json_type(v) when is_integer(v), do: "integer"
+  defp json_type(v) when is_float(v), do: "number"
+  defp json_type(v) when is_boolean(v), do: "boolean"
+  defp json_type(nil), do: "null"
+  defp json_type(_), do: "unknown"
+
+  # Each call in `tasks` and in method `subtasks` is `[name, arg1, arg2, ...]`.
+  # When `name` is a known action or method, `length(args)` must match the
+  # callee's `params` arity. Unknown names are left to the planner.
+  defp check_arity(doc) do
+    actions = Map.get(doc, "actions", %{})
+    methods = Map.get(doc, "methods", %{})
+    tasks = Map.get(doc, "tasks", [])
+    arity_index = arity_index(actions, methods)
+
+    with :ok <- check_calls(tasks, arity_index, "tasks") do
+      methods
+      |> Enum.reduce_while(:ok, fn {mname, mdef}, _ ->
+        case check_calls(method_subtasks(mdef), arity_index, "method #{mname}") do
+          :ok -> {:cont, :ok}
+          err -> {:halt, err}
+        end
+      end)
+    end
+  end
+
+  defp arity_index(actions, methods) when is_map(actions) and is_map(methods) do
+    Map.merge(name_arity_map(actions), name_arity_map(methods))
+  end
+
+  defp arity_index(_, _), do: %{}
+
+  defp name_arity_map(defs) do
+    for {name, defn} <- defs, is_map(defn), into: %{} do
+      params = Map.get(defn, "params", []) || []
+      {name, length(params)}
+    end
+  end
+
+  defp check_calls(calls, index, ctx) when is_list(calls) do
+    Enum.reduce_while(calls, :ok, fn call, _ ->
+      case check_call(call, index, ctx) do
+        :ok -> {:cont, :ok}
+        err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp check_calls(_, _, _), do: :ok
+
+  defp check_call([name | args], index, ctx) when is_binary(name) do
+    case Map.fetch(index, name) do
+      :error ->
+        :ok
+
+      {:ok, expected} ->
+        if length(args) == expected,
+          do: :ok,
+          else: {:error, "#{ctx}: #{name} expects #{expected} arg(s), got #{length(args)}"}
+    end
+  end
+
+  defp check_call(_, _, _), do: :ok
+
+  defp method_subtasks(%{"alternatives" => alts}) when is_list(alts) do
+    Enum.flat_map(alts, fn
+      %{"subtasks" => subs} when is_list(subs) -> subs
+      _ -> []
+    end)
+  end
+
+  defp method_subtasks(_), do: []
+
+  # `{name}` substitutions inside an action `body` may reference the
+  # action's own `params` or any global `variables[].name`. Inside a
+  # method `subtasks` they may reference the method's own `params` or
+  # any global. Unknown references are caller bugs the planner cannot
+  # detect (it just emits the unsubstituted token).
+  @var_re ~r/\{([^{}]+)\}/
+
+  defp check_var_refs(doc) do
+    globals = global_var_names(doc)
+    actions = Map.get(doc, "actions", %{})
+    methods = Map.get(doc, "methods", %{})
+
+    with :ok <- check_member_refs(actions, globals, "action", &Map.get(&1, "body", [])) do
+      check_member_refs(methods, globals, "method", &method_subtasks/1)
+    end
+  end
+
+  defp global_var_names(doc) do
+    doc
+    |> Map.get("variables", [])
+    |> List.wrap()
+    |> Enum.flat_map(fn
+      %{"name" => n} when is_binary(n) -> [n]
+      _ -> []
+    end)
+    |> MapSet.new()
+  end
+
+  defp check_member_refs(defs, globals, kind, body_fn) when is_map(defs) do
+    Enum.reduce_while(defs, :ok, fn {name, defn}, _ ->
+      params = MapSet.new(Map.get(defn, "params", []) || [])
+      allowed = MapSet.union(params, globals)
+
+      case scan_refs(body_fn.(defn), allowed, "#{kind} #{name}") do
+        :ok -> {:cont, :ok}
+        err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp check_member_refs(_, _, _, _), do: :ok
+
+  defp scan_refs(s, allowed, ctx) when is_binary(s) do
+    @var_re
+    |> Regex.scan(s, capture: :all_but_first)
+    |> Enum.reduce_while(:ok, fn [ref], _ ->
+      if MapSet.member?(allowed, ref),
+        do: {:cont, :ok},
+        else: {:halt, {:error, "#{ctx}: undeclared variable {#{ref}}"}}
+    end)
+  end
+
+  defp scan_refs(list, allowed, ctx) when is_list(list) do
+    Enum.reduce_while(list, :ok, fn item, _ ->
+      case scan_refs(item, allowed, ctx) do
+        :ok -> {:cont, :ok}
+        err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp scan_refs(map, allowed, ctx) when is_map(map) do
+    Enum.reduce_while(map, :ok, fn {_k, v}, _ ->
+      case scan_refs(v, allowed, ctx) do
+        :ok -> {:cont, :ok}
+        err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp scan_refs(_, _, _), do: :ok
 
   defp read_file(path) do
     case File.read(path) do
@@ -110,8 +289,11 @@ defmodule Taskweft.JSONLD.Loader do
 
   defp encode(value) do
     case Jason.encode(value) do
-      {:ok, str} -> {:ok, str}
-      {:error, %Jason.EncodeError{} = e} -> {:error, "JSON encode failed: #{Exception.message(e)}"}
+      {:ok, str} ->
+        {:ok, str}
+
+      {:error, %Jason.EncodeError{} = e} ->
+        {:error, "JSON encode failed: #{Exception.message(e)}"}
     end
   end
 
