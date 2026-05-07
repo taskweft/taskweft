@@ -223,10 +223,10 @@ defmodule Taskweft.MCP.Server do
 
   @impl true
   def handle_tool_call("plan", %{"domain_json" => d}, state),
-    do: text_result(NIF.plan(d), state)
+    do: tuple_result(Taskweft.plan(d), state)
 
   def handle_tool_call("replan", %{"domain_json" => d, "plan_json" => p} = args, state) do
-    text_result(NIF.replan(d, p, Map.get(args, "fail_step", -1)), state)
+    tuple_result(Taskweft.replan(d, p, Map.get(args, "fail_step", -1)), state)
   end
 
   def handle_tool_call(
@@ -234,7 +234,17 @@ defmodule Taskweft.MCP.Server do
         %{"domain_json" => d, "plan_json" => p, "probs_json" => probs, "seed" => seed},
         state
       ) do
-    text_result(NIF.mc_execute(d, p, probs, seed), state)
+    tuple_result(safe_mc_execute(d, p, probs, seed), state)
+  end
+
+  # Mirrors the {:ok, _} | {:error, _} contract of Taskweft.plan/3 and
+  # Taskweft.replan/3 for the simulate path. NIF.mc_execute/4 still raises
+  # RuntimeError on planner failure (e.g. depth-exceeded, no-plan); convert to
+  # an error tuple so a malformed input never kills the MCP GenServer.
+  defp safe_mc_execute(d, p, probs, seed) do
+    {:ok, NIF.mc_execute(d, p, probs, seed)}
+  rescue
+    e -> {:error, Exception.message(e)}
   end
 
   def handle_tool_call("solve_minizinc", %{"model" => model} = args, state) do
@@ -264,6 +274,17 @@ defmodule Taskweft.MCP.Server do
 
   defp text_result(result, state) when is_binary(result),
     do: {:ok, %{content: [text(result)]}, state}
+
+  # Unwrap the {:ok, _} | {:error, _} returned by Taskweft.plan/3,
+  # Taskweft.replan/3, and safe_mc_execute/4 into the MCP handler reply shape.
+  defp tuple_result({:ok, result}, state) when is_binary(result),
+    do: text_result(result, state)
+
+  defp tuple_result({:error, reason}, state) when is_binary(reason),
+    do: {:error, reason, state}
+
+  defp tuple_result({:error, reason}, state),
+    do: {:error, inspect(reason), state}
 
   @impl true
   def handle_resource_read("taskweft://domains/" <> name = uri, _full_uri, state),
