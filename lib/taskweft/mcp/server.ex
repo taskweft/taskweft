@@ -10,7 +10,6 @@ defmodule Taskweft.MCP.Server do
   |------|-------------|
   | `plan` | Run the HTN planner over a JSON-LD domain |
   | `replan` | Recover from a failed plan step |
-  | `solve_minizinc` | Forward a MiniZinc model to the configured minizinc peer |
 
   `check_temporal` is not exposed; temporal validity is checked on the
   plan output. ReBAC, bridge, and cache NIF entrypoints are not exposed.
@@ -81,30 +80,6 @@ defmodule Taskweft.MCP.Server do
         fail_step: %{type: "integer", default: -1}
       },
       required: ["domain_json", "plan_json"]
-    })
-  end
-
-  deftool "solve_minizinc" do
-    meta do
-      name("Solve MiniZinc problem (via peer MCP)")
-
-      description(
-        "Solve a MiniZinc constraint/optimization model by forwarding to the configured `:minizinc` peer MCP server (typically `V-Sekai-fire/minizinc-mcp`). Pass the .mzn model content (and optional .dzn data) as strings. The peer chooses the solver from the bundled set (HiGHS / Chuffed / Gecode / OR-Tools CP-SAT). Requires the peer's host to have the `minizinc` binary on PATH."
-      )
-    end
-
-    input_schema(%{
-      type: "object",
-      properties: %{
-        model: %{type: "string", description: "MiniZinc .mzn model content"},
-        data: %{type: "string", description: "Optional .dzn data content"},
-        timeout_ms: %{
-          type: "integer",
-          description: "Solver wall-clock budget in milliseconds (default 30000)",
-          default: 30_000
-        }
-      },
-      required: ["model"]
     })
   end
 
@@ -187,28 +162,6 @@ defmodule Taskweft.MCP.Server do
 
   def handle_tool_call("replan", %{"domain_json" => d, "plan_json" => p} = args, state) do
     tuple_result(Taskweft.replan(d, p, Map.get(args, "fail_step", -1)), state)
-  end
-
-  def handle_tool_call("solve_minizinc", %{"model" => model} = args, state) do
-    opts =
-      []
-      |> then(fn o ->
-        case Map.get(args, "data") do
-          nil -> o
-          data -> Keyword.put(o, :data, data)
-        end
-      end)
-      |> then(fn o ->
-        case Map.get(args, "timeout_ms") do
-          nil -> o
-          ms -> Keyword.put(o, :timeout_ms, ms)
-        end
-      end)
-
-    case Taskweft.Solve.minizinc(model, opts) do
-      {:ok, solution} -> text_result(Jason.encode!(solution), state)
-      {:error, reason} -> {:error, inspect(reason), state}
-    end
   end
 
   def handle_tool_call(name, _args, state),
