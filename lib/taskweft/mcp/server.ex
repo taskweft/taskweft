@@ -119,7 +119,7 @@ defmodule Taskweft.MCP.Server do
       name("Work queue status")
 
       description(
-        "Stored skill — read taskweft://domains/work_queue.jsonld and report decoded status (phases, pass conditions, scenarios, stack readiness)."
+        "Stored skill — read taskweft://problems/work_queue.jsonld and report decoded status (phases, pass conditions, scenarios, stack readiness)."
       )
     end
   end
@@ -370,11 +370,11 @@ defmodule Taskweft.MCP.Server do
     """
     # Work queue
 
-    The work queue lives at `taskweft://domains/work_queue.jsonld` — a JSON-LD HTN domain document. It is the source of truth for project status; do not infer status from `git log` or open PRs.
+    The work queue lives at `taskweft://problems/work_queue.jsonld` — a JSON-LD HTN problem document (uses the generic `service_bringup` domain). It is the source of truth for project status; do not infer status from `git log` or open PRs.
 
     ## What to do
 
-    1. Read the resource `taskweft://domains/work_queue.jsonld`.
+    1. Read the resource `taskweft://problems/work_queue.jsonld`.
     2. Read the four `variables[]` entries: `phase`, `pass_condition`, `scenario`, `stack_ready`. Each has an `init` map of `name → integer`.
     3. Decode integers using the `enums` block at the top of the file:
        - `phase`: `0=unstarted, 1=stub, 2=green, 3=done`
