@@ -68,21 +68,36 @@ Requires Elixir/OTP and, for the standalone binary, [Zig
 
 ```sh
 mix deps.get
-mix compile                 # builds the C++20 NIF via elixir_make
+mix compile                  # builds the C++20 NIF via elixir_make
 mix test --include property  # ExUnit + PropCheck
-
-# Assemble the release (no Burrito wrap unless zig is present):
-mix release taskweft
-
-# Produce the standalone per-triplet binaries into ./burrito_out:
-TASKWEFT_BURRITO=1 MIX_ENV=prod mix release taskweft            # all targets
-TASKWEFT_BURRITO=1 BURRITO_TARGET=windows_amd64 \
-  MIX_ENV=prod mix release taskweft                            # one target
 ```
 
-Targets: `linux_amd64`, `linux_arm64`, `macos_arm64`, `windows_amd64`.
-CI builds and attaches each on a tagged release (see
-`.github/workflows/release.yml`).
+### One-step standalone build
+
+`scripts/build-standalone.sh` builds the binaries on a **Linux host** (native,
+WSL, a container, or CI). Zig cross-compiles, so one Linux host produces both
+the Linux and macOS binaries:
+
+```sh
+scripts/build-standalone.sh                    # linux_amd64 + macos_arm64
+TASKWEFT_SMOKE=1 scripts/build-standalone.sh linux_amd64   # build + run smoke
+wsl bash scripts/build-standalone.sh           # from Windows, via WSL
+```
+
+The **Windows** binary must be built on Windows (Burrito's `CopyERTS` step
+can't lay out the Windows ERTS from another host):
+
+```sh
+TASKWEFT_BURRITO=1 BURRITO_TARGET=windows_amd64 \
+  MIX_ENV=prod mix release taskweft
+```
+
+Why the split: the macOS wrapper links against zig's bundled libSystem stubs
+(a native macOS runner's SDK doesn't provide them cleanly), and on Linux the
+NIF is recompiled as a self-contained **musl** shared object so it loads inside
+Burrito's musl ERTS. CI (`.github/workflows/release.yml`) mirrors this: one
+Linux job builds linux + macOS, a macOS runner then *runs* the cross-built
+macOS binary to prove the NIF loads, and Windows builds natively.
 
 `Taskweft.Release.wrap/1` skips the Burrito step when no zig toolchain is
 present, so a plain `mix release taskweft` still assembles on any machine.

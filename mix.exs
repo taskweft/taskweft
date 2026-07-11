@@ -42,27 +42,45 @@ defmodule Taskweft.MixProject do
         steps: [:assemble, &Taskweft.Release.wrap/1],
         burrito: [
           targets: [
-            # Burrito bundles a musl ERTS on Linux but recompiles the NIF for
-            # `x86_64-linux` (glibc), so the .so fails to load (the module then
-            # reports "not available"). Force the NIF to target musl too — zig
-            # takes the last `-target`, overriding Burrito's default.
-            linux_amd64: [
-              os: :linux,
-              cpu: :x86_64,
-              nif_cflags: "-target x86_64-linux-musl",
-              nif_cxxflags: "-target x86_64-linux-musl"
-            ],
-            linux_arm64: [
-              os: :linux,
+            # Linux needs two fixes for the NIF to load inside the binary:
+            #   1. Burrito bundles a *musl* ERTS but its recompile defaults to
+            #      glibc; override CC/CXX (via nif_env — last env value wins) to
+            #      a single musl `-target` so the .so is musl + static libc++.
+            #   2. taskweft_nif's Makefile writes to `priv/` (dep-relative) while
+            #      Burrito's copy-back reads `$MIX_APP_PATH/priv`; redirect it
+            #      with nif_make_args so the rebuilt .so actually replaces the
+            #      native (glibc) one in the release.
+            linux_amd64: linux_target("x86_64-linux-musl", :x86_64),
+            linux_arm64: linux_target("aarch64-linux-musl", :aarch64),
+            # macOS uses Burrito's default zig target (aarch64-macos, correct),
+            # but still needs the PRIV_DIR redirect so the recompiled Mach-O .so
+            # replaces the host-built one in the release.
+            macos_arm64: [
+              os: :darwin,
               cpu: :aarch64,
-              nif_cflags: "-target aarch64-linux-musl",
-              nif_cxxflags: "-target aarch64-linux-musl"
+              nif_make_args: ["PRIV_DIR=$(MIX_APP_PATH)/priv"]
             ],
-            macos_arm64: [os: :darwin, cpu: :aarch64],
             windows_amd64: [os: :windows, cpu: :x86_64]
           ]
         ]
       ]
+    ]
+  end
+
+  # A Burrito Linux target that recompiles taskweft_nif as a self-contained
+  # musl shared object landing in the release priv dir. `zig_triple` is e.g.
+  # "x86_64-linux-musl"; the single `-target` (last env value wins over
+  # Burrito's default) yields musl + statically-linked libc++, so the .so
+  # loads inside the musl ERTS.
+  defp linux_target(zig_triple, cpu) do
+    cc = "zig cc -target #{zig_triple} -O2 -shared -fPIC -Wl,-undefined=dynamic_lookup"
+    cxx = "zig c++ -target #{zig_triple} -O2 -shared -fPIC -Wl,-undefined=dynamic_lookup"
+
+    [
+      os: :linux,
+      cpu: cpu,
+      nif_make_args: ["PRIV_DIR=$(MIX_APP_PATH)/priv"],
+      nif_env: [{"CC", cc}, {"CXX", cxx}]
     ]
   end
 
