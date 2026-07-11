@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 K. S. Ernest (iFire) Lee
+name: Taskweft Release
+
+# Build the standalone Burrito binary per triplet and attach each to the
+# GitHub release for the pushed tag (issue #53).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: burrito ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Each triplet builds on a native runner so the C++20 NIF compiles
+          # for that OS/arch rather than being cross-compiled.
+          - target: windows_amd64
+            os: windows-latest
+            ext: ".exe"
+          - target: linux_amd64
+            os: ubuntu-latest
+            ext: ""
+          - target: macos_arm64
+            os: macos-latest
+            ext: ""
+
+    env:
+      MIX_ENV: prod
+      TASKWEFT_BURRITO: "1"
+      BURRITO_TARGET: ${{ matrix.target }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17"
+          otp-version: "27"
+
+      - name: Set up Zig (Burrito backend)
+        uses: mlugg/setup-zig@v1
+        with:
+          version: "0.15.2"
+
+      - name: Stamp the build commit
+        shell: bash
+        run: echo "TASKWEFT_COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Build standalone binary
+        run: mix release taskweft --overwrite
+
+      - name: Smoke test (plan + mcp handshake)
+        shell: bash
+        run: |
+          bin="burrito_out/taskweft_${{ matrix.target }}${{ matrix.ext }}"
+          chmod +x "$bin" || true
+          # `version` self-extracts on first run and must print the stamp.
+          "$bin" version | grep -E "^taskweft [0-9]+\.[0-9]+\.[0-9]+"
+          # `plan` exercises the bundled NIF loading from the self-extract dir.
+          "$bin" plan priv/smoke/blocks_world.jsonld | grep -E '^\[\['
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: taskweft_${{ matrix.target }}
+          path: burrito_out/taskweft_${{ matrix.target }}${{ matrix.ext }}
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: burrito_out/taskweft_${{ matrix.target }}${{ matrix.ext }}

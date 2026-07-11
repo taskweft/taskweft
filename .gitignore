@@ -12,6 +12,9 @@ cli/.build_riscv/
 cli/taskweft
 cli/taskweft_riscv64
 
+# Burrito standalone release output
+/burrito_out/
+
 # Lean build artifacts
 lean/.lake/
 lean/lake-packages/
