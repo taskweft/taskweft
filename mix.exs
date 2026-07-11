@@ -42,8 +42,22 @@ defmodule Taskweft.MixProject do
         steps: [:assemble, &Taskweft.Release.wrap/1],
         burrito: [
           targets: [
-            linux_amd64: [os: :linux, cpu: :x86_64],
-            linux_arm64: [os: :linux, cpu: :aarch64],
+            # Burrito bundles a musl ERTS on Linux but recompiles the NIF for
+            # `x86_64-linux` (glibc), so the .so fails to load (the module then
+            # reports "not available"). Force the NIF to target musl too — zig
+            # takes the last `-target`, overriding Burrito's default.
+            linux_amd64: [
+              os: :linux,
+              cpu: :x86_64,
+              nif_cflags: "-target x86_64-linux-musl",
+              nif_cxxflags: "-target x86_64-linux-musl"
+            ],
+            linux_arm64: [
+              os: :linux,
+              cpu: :aarch64,
+              nif_cflags: "-target aarch64-linux-musl",
+              nif_cxxflags: "-target aarch64-linux-musl"
+            ],
             macos_arm64: [os: :darwin, cpu: :aarch64],
             windows_amd64: [os: :windows, cpu: :x86_64]
           ]
