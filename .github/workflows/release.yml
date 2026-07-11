@@ -53,6 +53,17 @@ jobs:
           elixir-version: "1.17"
           otp-version: "27"
 
+      - name: Install xz (Burrito compresses the payload with it)
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ runner.os }}" in
+            Windows) choco install xz --no-progress -y ;;
+            Linux)   sudo apt-get update -qq && sudo apt-get install -y xz-utils ;;
+            macOS)   brew list xz >/dev/null 2>&1 || brew install xz ;;
+          esac
+          xz --version
+
       - name: Set up Zig 0.15.2 (Burrito backend)
         shell: bash
         run: |
