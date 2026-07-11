@@ -25,7 +25,9 @@ defmodule Taskweft.Application do
   def start(_type, _args) do
     children =
       if run_cli?() do
-        [{Task, fn -> Taskweft.CLI.main() end}]
+        # `:temporary` so a crashing dispatcher can't be spin-restarted;
+        # `main/1` is self-contained and halts the VM on completion.
+        [Supervisor.child_spec({Task, fn -> Taskweft.CLI.main() end}, restart: :temporary)]
       else
         []
       end

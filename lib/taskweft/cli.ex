@@ -63,18 +63,31 @@ defmodule Taskweft.CLI do
   def main(argv \\ nil) do
     argv = argv || resolve_argv()
 
+    # Every non-`mcp` path must terminate the VM — a raised error or an
+    # unexpected return becomes a non-zero exit, never an idle VM that hangs
+    # the standalone binary. `serve_mcp/1` is the one path that blocks forever.
     case run(argv) do
-      {:ok, output} ->
-        IO.puts(output)
-        halt(0)
-
-      {:error, message, code} ->
-        IO.puts(:stderr, message)
-        halt(code)
-
-      {:mcp, opts} ->
-        serve_mcp(opts)
+      {:mcp, opts} -> serve_mcp(opts)
+      other -> emit(other)
     end
+  rescue
+    e ->
+      IO.puts(:stderr, "taskweft: #{Exception.message(e)}")
+      halt(1)
+  catch
+    kind, reason ->
+      IO.puts(:stderr, "taskweft: #{Exception.format(kind, reason, __STACKTRACE__)}")
+      halt(1)
+  end
+
+  defp emit({:ok, output}) do
+    IO.puts(output)
+    halt(0)
+  end
+
+  defp emit({:error, message, code}) do
+    IO.puts(:stderr, message)
+    halt(code)
   end
 
   @doc """
@@ -201,7 +214,10 @@ defmodule Taskweft.CLI do
 
   # Blocks forever running the MCP server; only reached from `main/1`.
   defp serve_mcp(opts) do
-    ensure_started()
+    # The MCP stack (ex_mcp's Horde ServiceRegistry, SessionManager, the
+    # reliability supervisor) is marked `:load` in the release and started
+    # here, lazily, only for the `mcp` subcommand.
+    {:ok, _} = Application.ensure_all_started(:taskweft_mcp)
 
     server_opts =
       case Keyword.get(opts, :transport, :stdio) do
@@ -355,11 +371,6 @@ defmodule Taskweft.CLI do
     else
       System.argv()
     end
-  end
-
-  defp ensure_started do
-    {:ok, _} = Application.ensure_all_started(:taskweft)
-    :ok
   end
 
   # Wrapped so tests can stub the boundary if needed; real halts the VM.

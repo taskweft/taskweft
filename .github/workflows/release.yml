@@ -16,10 +16,9 @@ jobs:
   build:
     name: burrito ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    # macOS Burrito builds currently hit a zig/libSystem link issue
-    # (undefined _sigemptyset/_waitpid) — kept non-blocking so the Linux and
-    # Windows binaries still build and attach. Tracked under #53.
-    continue-on-error: ${{ matrix.experimental || false }}
+    # No failure is masked. fail-fast: false keeps each target independent, and
+    # "Attach to release" runs per-job on its own success, so a green target
+    # still publishes even while another is being fixed.
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +41,6 @@ jobs:
             ext: ""
             zig: zig-aarch64-macos-0.15.2
             zig_ext: tar.xz
-            experimental: true
 
     env:
       MIX_ENV: prod
@@ -96,6 +94,17 @@ jobs:
           echo "${base}/${{ matrix.zig }}" >> "$GITHUB_PATH"
           "${base}/${{ matrix.zig }}/zig" version
 
+      - name: Point zig at the macOS SDK (libSystem link)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcode-select -p
+          {
+            echo "SDKROOT=$(xcrun --show-sdk-path)"
+            echo "MACOSX_DEPLOYMENT_TARGET=11.0"
+          } >> "$GITHUB_ENV"
+
       - name: Stamp the build commit
         shell: bash
         run: echo "TASKWEFT_COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
@@ -107,19 +116,19 @@ jobs:
         run: mix release taskweft --overwrite
 
       - name: Smoke test (version + plan through the bundled NIF)
-        # Best-effort: the binary is built and verified; a platform-specific
-        # CI/tty quirk in the smoke run must not block uploading the artifact.
-        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           bin="burrito_out/taskweft_${{ matrix.target }}${{ matrix.ext }}"
           chmod +x "$bin" || true
-          # Redirect stdin from /dev/null and bound with `timeout` so a stray
-          # read can never hang the job; `version` self-extracts on first run.
-          timeout 120 "$bin" version </dev/null | grep -E "^taskweft [0-9]+\.[0-9]+\.[0-9]+"
-          # `plan` exercises the bundled NIF loading from the self-extract dir.
-          timeout 120 "$bin" plan priv/smoke/blocks_world.jsonld </dev/null | grep -E '^\[\['
+          # Pre-warm: the first invocation self-extracts the bundled runtime;
+          # do it once (generous timeout) so the asserted runs below see a warm
+          # cache and consistent timing. `</dev/null` guarantees no stray stdin
+          # read can block; `main/1` always halts, so these cannot hang.
+          timeout 180 "$bin" version </dev/null >/dev/null
+          # Assert the version stamp and that `plan` loads the bundled NIF.
+          timeout 60 "$bin" version </dev/null | grep -E "^taskweft [0-9]+\.[0-9]+\.[0-9]+"
+          timeout 60 "$bin" plan priv/smoke/blocks_world.jsonld </dev/null | grep -E '^\[\['
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
