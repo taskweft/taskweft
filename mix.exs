@@ -72,15 +72,22 @@ defmodule Taskweft.MixProject do
   # "x86_64-linux-musl"; the single `-target` (last env value wins over
   # Burrito's default) yields musl + statically-linked libc++, so the .so
   # loads inside the musl ERTS.
+  #
+  # CC/CXX route through scripts/nif-compile, which makes the otherwise
+  # single-command compile+link cacheable by sccache (falls back to plain zig
+  # when sccache is absent). See scripts/nif-compile.
   defp linux_target(zig_triple, cpu) do
-    cc = "zig cc -target #{zig_triple} -O2 -shared -fPIC -Wl,-undefined=dynamic_lookup"
-    cxx = "zig c++ -target #{zig_triple} -O2 -shared -fPIC -Wl,-undefined=dynamic_lookup"
+    wrapper = Path.expand("scripts/nif-compile")
+    flags = "-target #{zig_triple} -Wl,-undefined=dynamic_lookup"
 
     [
       os: :linux,
       cpu: cpu,
       nif_make_args: ["PRIV_DIR=$(MIX_APP_PATH)/priv"],
-      nif_env: [{"CC", cc}, {"CXX", cxx}]
+      nif_env: [
+        {"CC", "#{wrapper} cc #{flags}"},
+        {"CXX", "#{wrapper} cxx #{flags}"}
+      ]
     ]
   end
 

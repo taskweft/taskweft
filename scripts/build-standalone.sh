@@ -31,8 +31,14 @@ TARGETS=("$@")
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
+# Ensure the NIF compiler wrappers are executable regardless of git's exec bit.
+chmod +x scripts/nif-compile scripts/zig-cc scripts/zig-cxx 2>/dev/null || true
+
 # --- toolchain -------------------------------------------------------------
 command -v xz >/dev/null || { echo "error: xz not found (Burrito needs it)"; exit 1; }
+# sccache (optional) caches the NIF compile — used automatically by
+# scripts/nif-compile when present on PATH.
+command -v sccache >/dev/null && echo "sccache: $(sccache --version | head -1)"
 
 zig_dir="${ZIG_DIR:-${HOME}/.local/zig-${ZIG_VERSION}}"
 if [ ! -x "${zig_dir}/zig" ]; then

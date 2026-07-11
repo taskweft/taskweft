@@ -25,6 +25,8 @@ jobs:
   linux-macos:
     name: build linux + macos (zig cross)
     runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true" # sccache caches the NIF compile via GitHub cache
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +38,26 @@ jobs:
 
       - name: Install xz (Burrito payload compression)
         run: sudo apt-get update -qq && sudo apt-get install -y xz-utils
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Cache mix deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - name: Cache zig + Burrito downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/zig-0.15.2
+            ~/.cache/burrito_file_cache
+          key: ${{ runner.os }}-burrito-zig-0.15.2
 
       - name: Build linux_amd64 + macos_arm64 (smoke linux)
         env:
@@ -110,6 +132,15 @@ jobs:
           set -euo pipefail
           echo "C:\msys64\usr\bin" >> "$GITHUB_PATH"
           "/c/msys64/usr/bin/xz.exe" --version
+
+      - name: Cache mix deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
 
       - name: Set up Zig 0.15.2
         shell: bash

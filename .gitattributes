@@ -1,0 +1,6 @@
+# Shell scripts and the NIF compiler wrappers must stay LF so they run on
+# Linux/macOS regardless of the committer's platform.
+*.sh text eol=lf
+scripts/nif-compile text eol=lf
+scripts/zig-cc text eol=lf
+scripts/zig-cxx text eol=lf
