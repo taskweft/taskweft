@@ -42,14 +42,18 @@ jobs:
       - name: Set up sccache
         uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: Cache mix deps and build
+      # Cache only deps — NOT _build. Caching _build across releases keyed on
+      # mix.lock (which rarely changes) restored stale compiled beams, so a
+      # mix.exs @version bump never made it into the built binary (both the
+      # CLI version string and Burrito's per-version extraction cache key
+      # stayed at the old version). A fresh _build each run keeps the version
+      # honest; the expensive NIF C++ compile is still cached via sccache.
+      - name: Cache mix deps
         uses: actions/cache@v4
         with:
-          path: |
-            deps
-            _build
-          key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          path: deps
+          key: ${{ runner.os }}-deps-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-deps-
 
       - name: Cache zig + Burrito downloads
         uses: actions/cache@v4
@@ -133,14 +137,18 @@ jobs:
           echo "C:\msys64\usr\bin" >> "$GITHUB_PATH"
           "/c/msys64/usr/bin/xz.exe" --version
 
-      - name: Cache mix deps and build
+      # Cache only deps — NOT _build. Caching _build across releases keyed on
+      # mix.lock (which rarely changes) restored stale compiled beams, so a
+      # mix.exs @version bump never made it into the built binary (both the
+      # CLI version string and Burrito's per-version extraction cache key
+      # stayed at the old version). A fresh _build each run keeps the version
+      # honest; the expensive NIF C++ compile is still cached via sccache.
+      - name: Cache mix deps
         uses: actions/cache@v4
         with:
-          path: |
-            deps
-            _build
-          key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          path: deps
+          key: ${{ runner.os }}-deps-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-deps-
 
       - name: Set up Zig 0.15.2
         shell: bash
