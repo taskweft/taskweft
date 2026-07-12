@@ -3,19 +3,11 @@
 
 # multiplayer-fabric-taskweft
 
-Elixir library wrapping a C++20 HTN planner NIF, plus a **single
-self-contained standalone binary** (`taskweft`) that exposes both the
-Taskweft CLI and the Taskweft MCP server — no Erlang/Elixir/CMake toolchain
-required at runtime.
-
-The binary is produced with [Burrito](https://github.com/burrito-elixir/burrito):
-one file per target triplet, with the planner NIF bundled inside.
-
-## Standalone binary
+The planner server exposes the `plan`, `replan`, `simulate` tools and every bundled `priv/plans/{domains,problems}/*.jsonld` as a
+resource.
 
 Download the binary for your platform from the
-[latest release](https://github.com/V-Sekai-fire/multiplayer-fabric-taskweft/releases)
-(e.g. `taskweft_windows_amd64.exe`), then:
+[latest release](https://github.com/V-Sekai-fire/multiplayer-fabric-taskweft/releases).
 
 ```sh
 taskweft plan <domain.jsonld>                     # plan from a self-contained file
@@ -30,17 +22,7 @@ taskweft version                                   # version + build commit
 taskweft help                                      # usage
 ```
 
-`plan` prints the bare JSON step array (`[["a_walk", "alice", "2"], ...]`),
-identical to the historical C++ CLI, so existing callers are unaffected. A
-bare `taskweft <domain.jsonld>` (no subcommand) plans that file, and the
-legacy `--temporal` / `--simulate` / `--replan` / `--problem` flag forms are
-still accepted.
-
-> **First run** self-extracts the bundled runtime into a per-user cache
-> (`~/.local/share/.burrito` or `%LOCALAPPDATA%\.burrito`); subsequent runs
-> start immediately.
-
-### MCP client setup (Claude Code)
+## MCP client setup
 
 Point your MCP config at the binary — no `mix`, no `cwd`, no toolchain:
 
@@ -54,64 +36,3 @@ Point your MCP config at the binary — no `mix`, no `cwd`, no toolchain:
   }
 }
 ```
-
-(On Windows, `"command": "C:\\path\\to\\taskweft_windows_amd64.exe"`.)
-
-The server exposes the `plan`, `replan`, `simulate`, and `solve_minizinc`
-tools and every bundled `priv/plans/{domains,problems}/*.jsonld` as a
-resource.
-
-## Building from source
-
-Requires Elixir/OTP and, for the standalone binary, [Zig
-0.15.2](https://ziglang.org/download/) (Burrito's cross-compiler backend).
-
-```sh
-mix deps.get
-mix compile                  # builds the C++20 NIF via elixir_make
-mix test --include property  # ExUnit + PropCheck
-```
-
-### One-step standalone build
-
-`scripts/build-standalone.sh` builds the binaries on a **Linux host** (native,
-WSL, a container, or CI). Zig cross-compiles, so one Linux host produces both
-the Linux and macOS binaries:
-
-```sh
-scripts/build-standalone.sh                    # linux_amd64 + macos_arm64
-TASKWEFT_SMOKE=1 scripts/build-standalone.sh linux_amd64   # build + run smoke
-wsl bash scripts/build-standalone.sh           # from Windows, via WSL
-```
-
-The **Windows** binary must be built on Windows (Burrito's `CopyERTS` step
-can't lay out the Windows ERTS from another host):
-
-```sh
-TASKWEFT_BURRITO=1 BURRITO_TARGET=windows_amd64 \
-  MIX_ENV=prod mix release taskweft
-```
-
-Why the split: the macOS wrapper links against zig's bundled libSystem stubs
-(a native macOS runner's SDK doesn't provide them cleanly), and on Linux the
-NIF is recompiled as a self-contained **musl** shared object so it loads inside
-Burrito's musl ERTS. CI (`.github/workflows/release.yml`) mirrors this: one
-Linux job builds linux + macOS, a macOS runner then *runs* the cross-built
-macOS binary to prove the NIF loads, and Windows builds natively.
-
-`Taskweft.Release.wrap/1` skips the Burrito step when no zig toolchain is
-present, so a plain `mix release taskweft` still assembles on any machine.
-The commit stamped into `taskweft version` comes from the `TASKWEFT_COMMIT`
-build-time environment variable.
-
-## Repository layout
-
-- `lib/taskweft/cli.ex` — the unified CLI dispatcher (`Taskweft.CLI`).
-- `lib/taskweft/application.ex` — auto-runs the CLI only inside the Burrito
-  binary; a no-op when used as a library dependency.
-- `lib/taskweft/release.ex` — the toolchain-guarded Burrito wrap step.
-- `lib/taskweft/jsonld/` — JSON-LD domain loader / validator.
-- The planner NIF, MCP server, and bundled plans live in the sibling
-  `taskweft-nif`, `taskweft-mcp`, and `taskweft-plans` packages.
-
-See `AGENTS.md` and `CONTRIBUTING.md` for development conventions.
