@@ -51,7 +51,7 @@ defmodule Mix.Tasks.Taskweft.Mcp do
 
     {:ok, _server} =
       Taskweft.MCP.Server.start_link(
-        transport: :sse,
+        transport: :http,
         port: port,
         host: host,
         sse_enabled: true
