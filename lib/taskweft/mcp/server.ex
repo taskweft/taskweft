@@ -83,8 +83,12 @@ defmodule Taskweft.MCP.Server do
 
       guarded(state, fn ->
         with {:ok, normalized} <- validate_domain(domain_json),
-             :ok <- validate_fail_step(plan_json, fail_step) do
-          Taskweft.replan(normalized, plan_json, fail_step)
+             {:ok, steps} <- decode_plan(plan_json),
+             :ok <- validate_fail_step(steps, fail_step) do
+          # tw_replan wants a bare top-level step array; the {"plan":[...]} envelope
+          # that `plan` returns silently parses to 0 steps (#43), so re-encode the
+          # normalized step list before handing it to the NIF.
+          Taskweft.replan(normalized, Jason.encode!(steps), fail_step)
         end
       end)
     end)
@@ -170,33 +174,40 @@ defmodule Taskweft.MCP.Server do
   # `fail_step = -1` means full replan (no completed prefix). Any other value must
   # point at a real index in the plan; otherwise the planner silently treats it as
   # past-the-end success.
-  defp validate_fail_step(_plan_json, -1), do: :ok
+  defp validate_fail_step(_steps, -1), do: :ok
 
-  defp validate_fail_step(plan_json, fail_step) when is_integer(fail_step) and fail_step >= 0 do
-    case decode_plan(plan_json) do
-      {:ok, plan} when is_list(plan) ->
-        if fail_step < length(plan),
-          do: :ok,
-          else: {:error, "fail_step #{fail_step} out of range for plan of length #{length(plan)}"}
-
-      _ ->
-        # malformed plan_json — let the planner decide
-        :ok
-    end
+  defp validate_fail_step(steps, fail_step)
+       when is_list(steps) and is_integer(fail_step) and fail_step >= 0 do
+    if fail_step < length(steps),
+      do: :ok,
+      else: {:error, "fail_step #{fail_step} out of range for plan of length #{length(steps)}"}
   end
 
-  defp validate_fail_step(_plan_json, fail_step),
+  defp validate_fail_step(_steps, fail_step),
     do: {:error, "fail_step must be an integer >= -1, got #{inspect(fail_step)}"}
 
+  # Accept either a bare step array or the {"plan":[...]} envelope that `plan`
+  # returns, and normalize to a bare step list — the NIF's tw_replan wants a
+  # top-level array and silently yields 0 steps from an envelope (#43). Reject
+  # anything else with a structured error instead of silently passing it through.
   defp decode_plan(plan_json) when is_binary(plan_json) do
     case Jason.decode(plan_json) do
-      {:ok, list} when is_list(list) -> {:ok, list}
-      {:ok, %{"plan" => list}} when is_list(list) -> {:ok, list}
-      _ -> :error
+      {:ok, list} when is_list(list) ->
+        {:ok, list}
+
+      {:ok, %{"plan" => list}} when is_list(list) ->
+        {:ok, list}
+
+      {:ok, other} ->
+        {:error,
+         "plan_json must be an array of step arrays or a {\"plan\": [...]} envelope, got #{inspect(other)}"}
+
+      {:error, _} ->
+        {:error, "plan_json is not valid JSON"}
     end
   end
 
-  defp decode_plan(_), do: :error
+  defp decode_plan(_), do: {:error, "plan_json must be a JSON string"}
 
   # Run a planner call, converting any {:error, _} into the MCP error shape and
   # any raised exception / exit / thrown value into a clean {:error, _} result —
