@@ -1,7 +1,7 @@
 defmodule Taskweft.MixProject do
   use Mix.Project
 
-  @version "0.2.2"
+  @version "0.2.3"
 
   def project do
     [
@@ -60,7 +60,15 @@ defmodule Taskweft.MixProject do
               cpu: :aarch64,
               nif_make_args: ["PRIV_DIR=$(MIX_APP_PATH)/priv"]
             ],
-            windows_amd64: [os: :windows, cpu: :x86_64]
+            windows_amd64: [
+              os: :windows,
+              cpu: :x86_64,
+              # Same PRIV_DIR redirect as linux/macOS: without it the rebuilt
+              # NIF lands in the dep-relative priv/ and Burrito's copy-back
+              # ($MIX_APP_PATH/priv) misses it, so the binary ships without a
+              # loadable libtaskweft_nif.dll and the MCP server can't plan.
+              nif_make_args: ["PRIV_DIR=$(MIX_APP_PATH)/priv"]
+            ]
           ]
         ]
       ]
