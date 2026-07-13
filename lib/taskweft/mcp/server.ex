@@ -35,14 +35,36 @@ defmodule Taskweft.MCP.Server do
   tool "plan", "Run the IPyHOP-style HTN planner over a JSON-LD domain. Returns the plan as JSON." do
     param(:domain_json, :string,
       required: true,
-      description: "Full JSON-LD domain document, including initial state and goals."
+      description: """
+      A JSON-LD HTN domain (pointer-based IPyHOP). Shape:
+        "@context": {"vsekai": "https://v-sekai.org/", "domain": "vsekai:planning/domain/"}
+        "@type": "domain:Definition", "name": <string>
+        "variables": [{"name": <v>, "init": {<key>: <value>, ...}}]   # state; NOT a flat "state" object
+        "actions": {<name>: {"params": [<p>...],
+                             "body": [{"pointer/set": "/path/{p}", "value": <v>}]}}   # effects; NOT pre/eff
+        "methods": {<name>: {"params": [<p>...],
+                             "alternatives": [{"name": <alt>,
+                                               "check": [{"pointer": "/path", "eq": <v>}],   # optional guard
+                                               "subtasks": [[<call>, <arg>...], ...]}]}}
+        "tasks": [[<call>, <arg>...], ...]   # call-arrays, NOT bare strings
+      Effects use "pointer/set" (the legacy "set" op is rejected). {curly} names in
+      paths/values are substituted from action/method params. Minimal example:
+        {"@context":{"vsekai":"https://v-sekai.org/","domain":"vsekai:planning/domain/"},
+         "@type":"domain:Definition","name":"demo",
+         "variables":[{"name":"done","init":{"a":false,"b":false}}],
+         "actions":{"do_a":{"params":[],"body":[{"pointer/set":"/done/a","value":true}]},
+                    "do_b":{"params":[],"body":[{"pointer/set":"/done/b","value":true}]}},
+         "methods":{"top":{"params":[],"alternatives":[{"name":"seq","subtasks":[["do_a"],["do_b"]]}]}},
+         "tasks":[["top"]]}
+      """
     )
 
     run(fn %{domain_json: domain_json}, state ->
-      case validate_domain(domain_json) do
-        {:ok, normalized} -> tuple_result(Taskweft.plan(normalized), state)
-        {:error, reason} -> {:error, reason, state}
-      end
+      guarded(state, fn ->
+        with {:ok, normalized} <- validate_domain(domain_json) do
+          Taskweft.plan(normalized)
+        end
+      end)
     end)
   end
 
@@ -59,12 +81,12 @@ defmodule Taskweft.MCP.Server do
     run(fn %{domain_json: domain_json, plan_json: plan_json} = args, state ->
       fail_step = Map.get(args, :fail_step, -1)
 
-      with {:ok, normalized} <- validate_domain(domain_json),
-           :ok <- validate_fail_step(plan_json, fail_step) do
-        tuple_result(Taskweft.replan(normalized, plan_json, fail_step), state)
-      else
-        {:error, reason} -> {:error, reason, state}
-      end
+      guarded(state, fn ->
+        with {:ok, normalized} <- validate_domain(domain_json),
+             :ok <- validate_fail_step(plan_json, fail_step) do
+          Taskweft.replan(normalized, plan_json, fail_step)
+        end
+      end)
     end)
   end
 
@@ -175,6 +197,18 @@ defmodule Taskweft.MCP.Server do
   end
 
   defp decode_plan(_), do: :error
+
+  # Run a planner call, converting any {:error, _} into the MCP error shape and
+  # any raised exception / exit / thrown value into a clean {:error, _} result —
+  # so a malformed domain returns an MCP `isError` instead of crashing the
+  # transport (which surfaced as an opaque HTTP 500 / "Error POSTing to endpoint").
+  defp guarded(state, fun) do
+    tuple_result(fun.(), state)
+  rescue
+    e -> {:error, "taskweft: #{Exception.message(e)}", state}
+  catch
+    kind, reason -> {:error, "taskweft: #{inspect({kind, reason})}", state}
+  end
 
   # Unwrap the {:ok, _} | {:error, _} from Taskweft.plan/3 and replan/3 into the
   # MCP run-handler shape (a plain string becomes text content).
