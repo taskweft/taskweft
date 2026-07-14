@@ -79,11 +79,6 @@ defmodule Taskweft.CLITest do
     test "replan with no arguments" do
       assert {:error, _msg, 2} = CLI.run(["replan"])
     end
-
-    test "hrr reports the missing NIF binding rather than silently succeeding" do
-      assert {:error, msg, 3} = CLI.run(["hrr", "cat"])
-      assert IO.iodata_to_binary(msg) =~ "hrr_encode_atom"
-    end
   end
 
   describe "planner subcommands (through the NIF)" do
@@ -102,30 +97,11 @@ defmodule Taskweft.CLITest do
       assert IO.iodata_to_binary(bare) == IO.iodata_to_binary(viaplan)
     end
 
-    test "the legacy --temporal flag matches the temporal subcommand" do
-      assert {:ok, a} = CLI.run(["temporal", domain("blocks_world.jsonld")])
-      assert {:ok, b} = CLI.run(["--temporal", domain("blocks_world.jsonld")])
-      assert IO.iodata_to_binary(a) == IO.iodata_to_binary(b)
-    end
-
-    test "temporal output carries a temporal envelope" do
-      assert {:ok, out} = CLI.run(["temporal", domain("blocks_world.jsonld")])
-      {:ok, decoded} = out |> IO.iodata_to_binary() |> Jason.decode()
-      assert Map.has_key?(decoded, "temporal")
-      assert Map.has_key?(decoded, "plan")
-    end
-
     test "replan echoes the original plan (issue #43 shape) and recovers" do
       assert {:ok, out} = CLI.run(["replan", "0", domain("blocks_world.jsonld")])
       {:ok, decoded} = out |> IO.iodata_to_binary() |> Jason.decode()
       assert is_list(decoded["original_plan"])
       assert decoded["original_plan"] != []
-    end
-
-    test "simulate produces a per-step execution trace" do
-      assert {:ok, out} = CLI.run(["simulate", domain("blocks_world.jsonld")])
-      {:ok, decoded} = out |> IO.iodata_to_binary() |> Jason.decode()
-      assert is_list(decoded["steps"])
     end
 
     test "--problem merges the problem's tasks, changing the plan" do

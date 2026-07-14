@@ -14,25 +14,21 @@ defmodule Taskweft.CLI do
       taskweft plan <domain.jsonld>                     plan from a self-contained file
       taskweft plan --problem <domain> <problem>        plan from split domain + problem
       taskweft plan                                     plan from JSON-LD on stdin
-      taskweft temporal <domain> [problem]              plan + STN temporal metadata (JSON)
-      taskweft simulate <domain> [problem] [opts]       Monte Carlo execution trace (JSON)
       taskweft replan <fail_step> <domain> [problem]    replan after a step failure (JSON)
-      taskweft hrr <word> [dim]                          HRR atom phases for a word
       taskweft mcp [--http] [--port N] [--host H]        run the MCP server (stdio / HTTP)
       taskweft version                                   print version + build commit
       taskweft help                                      print this usage
 
-  The legacy `--temporal` / `--simulate` / `--replan` / `--problem` / `--hrr`
-  flag forms from the C++ CLI are accepted as aliases, and a bare
-  `taskweft <domain.jsonld>` (no subcommand) plans that file, so existing
-  callers keep working.
+  The legacy `--replan` / `--problem` flag forms from the C++ CLI are accepted
+  as aliases, and a bare `taskweft <domain.jsonld>` (no subcommand) plans that
+  file, so existing callers keep working.
 
   ## I/O contract
 
   `plan` prints the bare JSON array of steps (`[["a", "arg"], ...]`) that the
-  C++ CLI emitted, so byte-for-byte callers are unaffected. `temporal`,
-  `simulate`, and `replan` print the planner's JSON envelope. Domain +
-  problem pairs are merged the same way the C++ `TwLoader::load_file_pair`
+  C++ CLI emitted, so byte-for-byte callers are unaffected. `replan` prints
+  the planner's JSON envelope. Domain + problem pairs are merged the same way
+  the C++ `TwLoader::load_file_pair`
   merges them: problem `variables` override domain state by name, problem
   `methods` / `actions` / `goal_methods` extend or override the domain, and a
   non-empty problem `tasks` replaces the domain task list.
@@ -103,10 +99,7 @@ defmodule Taskweft.CLI do
 
   def run(["mcp" | rest]), do: parse_mcp(rest)
 
-  def run([cmd | rest]) when cmd in ["temporal", "--temporal"], do: temporal(rest)
-  def run([cmd | rest]) when cmd in ["simulate", "--simulate"], do: simulate(rest)
   def run([cmd | rest]) when cmd in ["replan", "--replan"], do: replan(rest)
-  def run([cmd | rest]) when cmd in ["hrr", "--hrr"], do: hrr(rest)
   def run(["plan" | rest]), do: plan(rest)
 
   # Bare `taskweft <domain.jsonld>` or `taskweft --problem d p` → plan.
@@ -119,43 +112,6 @@ defmodule Taskweft.CLI do
       {:ok, NIF.plan(domain_json)}
     end
   end
-
-  # ---------- temporal ----------
-
-  defp temporal(args) do
-    with {:ok, domain_json} <- load_domain(args) do
-      plan_json = NIF.plan(domain_json)
-      {:ok, NIF.check_temporal(domain_json, plan_json, "PT0S")}
-    end
-  end
-
-  # ---------- simulate ----------
-
-  defp simulate(args) do
-    {opts, positional} = split_sim_opts(args)
-
-    with {:ok, domain_json} <- load_domain(positional) do
-      plan_json = NIF.plan(domain_json)
-      probs = Keyword.get(opts, :probs, "{}")
-      seed = Keyword.get(opts, :seed, 0)
-      {:ok, NIF.mc_execute(domain_json, plan_json, probs, seed)}
-    end
-  end
-
-  defp split_sim_opts(args), do: split_sim_opts(args, [], [])
-
-  defp split_sim_opts(["--probs", value | rest], opts, pos),
-    do: split_sim_opts(rest, [{:probs, value} | opts], pos)
-
-  defp split_sim_opts(["--seed", value | rest], opts, pos) do
-    case Integer.parse(value) do
-      {seed, ""} -> split_sim_opts(rest, [{:seed, seed} | opts], pos)
-      _ -> split_sim_opts(rest, opts, pos)
-    end
-  end
-
-  defp split_sim_opts([arg | rest], opts, pos), do: split_sim_opts(rest, opts, [arg | pos])
-  defp split_sim_opts([], opts, pos), do: {opts, Enum.reverse(pos)}
 
   # ---------- replan ----------
 
@@ -175,17 +131,6 @@ defmodule Taskweft.CLI do
 
   defp replan([]),
     do: {:error, "taskweft replan: usage: replan <fail_step> <domain> [problem]", 2}
-
-  # ---------- hrr ----------
-
-  # The C++ CLI's `--hrr` calls `TwHRR::encode_atom`, which is not yet
-  # exposed as an Elixir NIF binding in `taskweft_nif` (only the phase/bytes
-  # HRR ops are). Surface a structured gap rather than a silent success.
-  defp hrr(_args) do
-    {:error,
-     "taskweft hrr: not available — the hrr_encode_atom NIF binding is not exposed in " <>
-       "taskweft_nif yet (tracked in issue #53). Use the C++ `taskweft --hrr` tool meanwhile.", 3}
-  end
 
   # ---------- mcp ----------
 
@@ -347,11 +292,7 @@ defmodule Taskweft.CLI do
       taskweft plan <domain.jsonld>                  plan from a self-contained file
       taskweft plan --problem <domain> <problem>     plan from split domain + problem
       taskweft plan                                  plan from JSON-LD on stdin
-      taskweft temporal <domain> [problem]           plan + temporal metadata (JSON)
-      taskweft simulate <domain> [problem] [opts]    Monte Carlo trace (JSON)
-                 opts: --probs <json> --seed <int>
       taskweft replan <fail_step> <domain> [problem] replan after a step failure (JSON)
-      taskweft hrr <word> [dim]                      HRR atom phases for a word
       taskweft mcp                                   run the MCP server over stdio
       taskweft mcp --http [--port N] [--host H]      run the MCP server over HTTP
       taskweft version                               print version + build commit
