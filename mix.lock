@@ -25,8 +25,8 @@
   "propcheck": {:hex, :propcheck, "1.5.0", "df6f554a97eba4f92c3e4bc7758c8480e8bc401188af32cfe09641e81d8a55ba", [:mix], [{:libgraph, "~> 0.13", [hex: :libgraph, repo: "hexpm", optional: false]}, {:proper, "~> 1.5", [hex: :proper, repo: "hexpm", optional: false]}], "hexpm", "3388aa7909277faed166dfced39fad6ecae3c3be064352d37646be459fc80e09"},
   "proper": {:hex, :proper, "1.5.0", "4a87ce8b219858e64c9aa015f4f7ed739d0ac3ca6bfd77fa62794617ee784225", [:rebar3], [], "hexpm", "fbf7cf0625e5441a314514f7d8e1eaff52090fcd94ff34b5171ff293d3f9969a"},
   "ranch": {:hex, :ranch, "2.2.0", "25528f82bc8d7c6152c57666ca99ec716510fe0925cb188172f41ce93117b1b0", [:make, :rebar3], [], "hexpm", "fa0b99a1780c80218a4197a59ea8d3bdae32fbff7e88527d7d8a4787eff4f8e7"},
-  "taskweft_mcp_client": {:git, "https://github.com/V-Sekai-fire/taskweft-mcp-client.git", "59a79670c51afe1e9dbf8fc1570e84936d6237f6", []},
-  "taskweft_nif": {:git, "https://github.com/V-Sekai-fire/taskweft-nif.git", "0a2a90debc1c93c91eccc6c1a6c4a16b9e77b4cb", []},
-  "taskweft_plans": {:git, "https://github.com/V-Sekai-fire/taskweft-plans.git", "7a187402c2fac53507d29eb99130cec10081f589", []},
+  "taskweft_mcp_client": {:git, "https://github.com/taskweft/mcp-client.git", "59a79670c51afe1e9dbf8fc1570e84936d6237f6", []},
+  "taskweft_nif": {:git, "https://github.com/taskweft/nif.git", "0a2a90debc1c93c91eccc6c1a6c4a16b9e77b4cb", []},
+  "taskweft_plans": {:git, "https://github.com/taskweft/plans.git", "7a187402c2fac53507d29eb99130cec10081f589", []},
   "telemetry": {:hex, :telemetry, "1.4.2", "a0cb522801dffb1c49fe6e30561badffc7b6d0e180db1300df759faa22062855", [:rebar3], [], "hexpm", "928f6495066506077862c0d1646609eed891a4326bee3126ba54b60af61febb1"},
 }
