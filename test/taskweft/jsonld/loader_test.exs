@@ -113,6 +113,84 @@ defmodule Taskweft.JSONLD.LoaderTest do
     end
   end
 
+  describe "validate/2 capabilities (RECTGTN 'R'/'C')" do
+    test "accepts a well-formed capabilities object" do
+      doc =
+        base(%{
+          "capabilities" => %{
+            "entities" => %{"drone_1" => ["fly"]},
+            "actions" => %{"a_fly" => ["fly"], "a_walk" => ["walk"]}
+          }
+        })
+
+      assert :ok = Loader.validate(doc, %{})
+    end
+
+    test "accepts a domain with no capabilities key at all" do
+      assert :ok = Loader.validate(base(%{}), %{})
+    end
+
+    test "accepts entities or actions being omitted" do
+      assert :ok = Loader.validate(base(%{"capabilities" => %{"entities" => %{"a" => ["x"]}}}), %{})
+      assert :ok = Loader.validate(base(%{"capabilities" => %{"actions" => %{"a" => ["x"]}}}), %{})
+      assert :ok = Loader.validate(base(%{"capabilities" => %{}}), %{})
+    end
+
+    test "rejects a non-object capabilities value" do
+      doc = base(%{"capabilities" => "fly"})
+      assert {:error, msg} = Loader.validate(doc, %{})
+      assert msg =~ "expected capabilities to be an object"
+    end
+
+    test "rejects a non-object entities/actions group" do
+      doc = base(%{"capabilities" => %{"entities" => ["fly"]}})
+      assert {:error, msg} = Loader.validate(doc, %{})
+      assert msg =~ "expected capabilities.entities to be an object"
+    end
+
+    test "rejects a capability list containing a non-string" do
+      doc = base(%{"capabilities" => %{"entities" => %{"drone_1" => [1]}}})
+      assert {:error, msg} = Loader.validate(doc, %{})
+      assert msg =~ "capabilities.entities.drone_1 must be an array of strings"
+    end
+
+    test "rejects a capability value that is not an array" do
+      doc = base(%{"capabilities" => %{"actions" => %{"a_fly" => "fly"}}})
+      assert {:error, msg} = Loader.validate(doc, %{})
+      assert msg =~ "capabilities.actions.a_fly must be an array of strings"
+    end
+  end
+
+  describe "validate/2 action duration (RECTGTN 'T')" do
+    test "accepts a valid ISO 8601 duration" do
+      doc =
+        base(%{
+          "actions" => %{
+            "a_fly" => %{"duration" => "PT5M", "params" => [], "body" => []}
+          }
+        })
+
+      assert :ok = Loader.validate(doc, %{})
+    end
+
+    test "accepts an action with no duration field" do
+      doc = base(%{"actions" => %{"a_fly" => %{"params" => [], "body" => []}}})
+      assert :ok = Loader.validate(doc, %{})
+    end
+
+    test "rejects a non-string duration" do
+      doc = base(%{"actions" => %{"a_fly" => %{"duration" => 5, "params" => [], "body" => []}}})
+      assert {:error, msg} = Loader.validate(doc, %{})
+      assert msg =~ "action a_fly: duration must be a string"
+    end
+
+    test "rejects a malformed ISO 8601 duration string" do
+      doc = base(%{"actions" => %{"a_fly" => %{"duration" => "5 minutes", "params" => [], "body" => []}}})
+      assert {:error, msg} = Loader.validate(doc, %{})
+      assert msg =~ "action a_fly: invalid duration"
+    end
+  end
+
   describe "validate/2 @type" do
     test "accepts the new domain:Problem type" do
       assert :ok = Loader.validate(base(%{}), %{})

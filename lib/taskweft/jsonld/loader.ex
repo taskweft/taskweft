@@ -77,9 +77,10 @@ defmodule Taskweft.JSONLD.Loader do
   Validate that a decoded JSON-LD document is a well-formed planning domain.
 
   Runs in order: `@type`, `name`, top-level field shapes, goal/multigoal
-  shapes, action/method call arity, variable substitution references. The
-  first failure is returned; subsequent checks rely on the shape established
-  by earlier ones (e.g. arity assumes `actions` is a map).
+  shapes, capability shapes, action/method call arity, action durations,
+  variable substitution references. The first failure is returned; subsequent
+  checks rely on the shape established by earlier ones (e.g. arity assumes
+  `actions` is a map).
   """
   @spec validate(map(), map()) :: :ok | {:error, String.t()}
   def validate(doc, _ctx) when is_map(doc) do
@@ -88,7 +89,9 @@ defmodule Taskweft.JSONLD.Loader do
          :ok <- check_shape(doc),
          :ok <- check_goals(doc),
          :ok <- check_multigoal_tasks(doc),
+         :ok <- check_capabilities(doc),
          :ok <- check_arity(doc),
+         :ok <- check_action_durations(doc),
          :ok <- check_var_refs(doc),
          :ok <- check_no_legacy_steps(doc) do
       :ok
@@ -218,6 +221,89 @@ defmodule Taskweft.JSONLD.Loader do
       end
     end)
   end
+
+  # Top-level `capabilities` (RECTGTN 'R'/'C') gates which entity may take
+  # which action — a ReBAC HAS_CAPABILITY guard, not itself checked against
+  # `variables`/`actions` names (an entity or action naming a var/action that
+  # doesn't exist is a planner-side no-op, not a load-time error). Only the
+  # shape is validated here: `entities`/`actions` are each optional objects of
+  # name -> array of capability strings.
+  defp check_capabilities(doc) do
+    case Map.get(doc, "capabilities") do
+      nil -> :ok
+      caps when is_map(caps) -> check_capabilities_shape(caps)
+      other -> {:error, "expected capabilities to be an object, got #{json_type(other)}"}
+    end
+  end
+
+  defp check_capabilities_shape(caps) do
+    with :ok <- check_capability_group(caps, "entities"),
+         :ok <- check_capability_group(caps, "actions") do
+      :ok
+    end
+  end
+
+  defp check_capability_group(caps, key) do
+    case Map.get(caps, key) do
+      nil -> :ok
+      group when is_map(group) -> check_capability_lists(group, key)
+      other -> {:error, "expected capabilities.#{key} to be an object, got #{json_type(other)}"}
+    end
+  end
+
+  defp check_capability_lists(group, key) do
+    Enum.reduce_while(group, :ok, fn {name, caps}, _ ->
+      case check_capability_list(caps) do
+        :ok -> {:cont, :ok}
+        :error -> {:halt, {:error, "capabilities.#{key}.#{name} must be an array of strings"}}
+      end
+    end)
+  end
+
+  defp check_capability_list(caps) when is_list(caps) do
+    if Enum.all?(caps, &is_binary/1), do: :ok, else: :error
+  end
+
+  defp check_capability_list(_), do: :error
+
+  # Per-action `duration` (RECTGTN 'T') feeds the temporal/STN block; unlike
+  # capabilities this has a concrete grammar (ISO 8601), so a malformed value
+  # is rejected here rather than left to the NIF's temporal parser.
+  defp check_action_durations(doc) do
+    actions = Map.get(doc, "actions", %{})
+
+    if is_map(actions) do
+      Enum.reduce_while(actions, :ok, fn {name, defn}, _ ->
+        case check_action_duration(name, defn) do
+          :ok -> {:cont, :ok}
+          err -> {:halt, err}
+        end
+      end)
+    else
+      :ok
+    end
+  end
+
+  defp check_action_duration(name, defn) when is_map(defn) do
+    case Map.get(defn, "duration") do
+      nil ->
+        :ok
+
+      dur when is_binary(dur) ->
+        case Taskweft.Iso8601Duration.parse(dur) do
+          {:ok, _components} ->
+            :ok
+
+          {:error, reason} ->
+            {:error, "action #{name}: invalid duration #{inspect(dur)} (#{inspect(reason)})"}
+        end
+
+      other ->
+        {:error, "action #{name}: duration must be a string, got #{json_type(other)}"}
+    end
+  end
+
+  defp check_action_duration(_name, _defn), do: :ok
 
   defp json_type(v) when is_map(v), do: "object"
   defp json_type(v) when is_list(v), do: "array"

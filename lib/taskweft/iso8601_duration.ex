@@ -10,10 +10,14 @@ defmodule Taskweft.Iso8601Duration do
   normalisation (`Y = 365d`, `Mo = 30d`, `W = 7d`, `D = 86_400 s`);
   civil time is out of scope.
 
-  This module exists so the Lean spec can be exercised with PropCheck
-  against the Timex oracle and a strict spec recogniser. The C++ NIF
-  port lives upstream in `taskweft-nif/standalone/tw_temporal.hpp` and
-  must match this module's behaviour.
+  Originally written so the Lean spec could be exercised with PropCheck
+  against the Timex oracle and a strict spec recogniser (still is —
+  see `test/taskweft/iso8601_duration_prop_test.exs`); promoted from
+  `test/support` into `lib` so `Taskweft.JSONLD.Loader.validate/2` can
+  reject a malformed action `duration` at load time instead of letting
+  it reach the NIF. The C++ NIF port lives upstream in
+  `taskweft-nif/standalone/tw_temporal.hpp` and must match this
+  module's behaviour.
   """
 
   @type unit :: :y | :mo | :w | :d | :h | :mi | :s
