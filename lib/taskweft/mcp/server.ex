@@ -7,23 +7,31 @@ defmodule Taskweft.MCP.Server do
   The planner model is **RECTGTN** — Relationship-Enabled Capability-Temporal
   Goal-Task-Network. A domain's `tasks` hold three task kinds: `TwCall` call
   arrays (`'E'`/`'T'`), `TwGoal` goal bindings (`'G'`, the top-level `goals`
-  key), and `TwMultiGoal` `{"multigoal": …}` entries (`'N'`). The `plan` tool's
-  `domain_json` description documents all three with golden and rejected shapes.
+  key), and `TwMultiGoal` `{"multigoal": …}` entries (`'N'`). Two more layers
+  apply on top of any task kind: capability guards (`'R'`/`'C'`, top-level
+  `capabilities`) and per-action temporal duration (`'T'`, an action's
+  `duration` field). The `plan` tool's `domain_json` description documents all
+  five with golden shapes (and rejected shapes for goals/multigoal —
+  capabilities/duration are plan-time, not load-time, so nothing there is
+  structurally validated).
 
   ## Tools
 
   | Tool | Description |
   |------|-------------|
-  | `plan` | Run the HTN planner over a JSON-LD domain (TwCall / TwGoal / TwMultiGoal) |
+  | `plan` | Run the HTN planner over a JSON-LD domain (TwCall / TwGoal / TwMultiGoal, capabilities, duration) |
   | `replan` | Recover from a failed plan step |
 
-  `check_temporal` is not exposed; temporal validity is checked on the plan
-  output. ReBAC, bridge, and cache NIF entrypoints are not exposed.
+  `check_temporal` is not exposed as its own tool; every `plan` response
+  already includes a `"temporal"` block computed from action `duration`
+  fields. ReBAC, bridge, and cache NIF entrypoints are not exposed.
 
   ## Prompts
 
   `plan_problem` (solve a problem/domain pair), `plan_goal` (build a TwGoal or
-  TwMultiGoal problem), `replan_after_failure`, and `work_queue`.
+  TwMultiGoal problem), `plan_capability_temporal` (build a domain using
+  capability guards and/or action durations), `replan_after_failure`, and
+  `work_queue`.
 
   ## Resources
 
@@ -59,6 +67,8 @@ defmodule Taskweft.MCP.Server do
                                                "check": [{"pointer": "/path", "eq": <v>}],   # optional guard
                                                "subtasks": [[<call>, <arg>...], ...]}]}}
         "goals": {<var>: {"params": [<p>...], "alternatives": [...]}}   # optional goal methods (TwGoal 'G')
+        "capabilities": {"entities": {<entity>: [<cap>...]}, "actions": {<name>: [<cap>...]}}
+                                                             # optional ReBAC capability guards (RECTGTN 'R'/'C')
         "tasks": [<task>, ...]
       Each <task> is ONE of three RECTGTN task kinds:
         1. TwCall  ('E'/'T') — a call-array [<name>, <arg>...]; a bare string is NOT a call.
@@ -68,7 +78,40 @@ defmodule Taskweft.MCP.Server do
                                the planner backjumps over which binding to satisfy first.
       A "tasks" list may mix call-arrays and {"multigoal": ...} objects freely.
       Effects use "pointer/set" (the legacy "set" op is rejected). {curly} names in
-      paths/values are substituted from action/method params. Minimal TwCall example:
+      paths/values are substituted from action/method params.
+
+      Two orthogonal RECTGTN features layer on top of any task kind above:
+        * Capabilities ('R'/'C') — top-level "capabilities": {"entities": {<entity>: [<cap>,...]},
+          "actions": {<action>: [<cap>,...]}}. Each action's alternative is a ReBAC HAS_CAPABILITY
+          guard: the planner only applies an action to an agent (its first param) that holds every
+          capability the action requires — an agent lacking one silently can't take that path, so the
+          planner tries the next alternative (or reports no plan if none qualify). This is a plan-time
+          guard, not a load-time check: Loader.validate does not structurally validate "capabilities"
+          (unlike "goals"/"tasks" below) — a malformed shape is simply ignored by the NIF's loader.
+        * Temporal duration ('T') — a per-action "duration": "<ISO8601>" field (e.g. "PT5M", "PT1H30M").
+          Every `plan` response already includes a "temporal" block (STN consistency + per-step
+          start/end) computed from these durations; actions without a "duration" default to "PT0S".
+          Also not load-time validated — an invalid ISO 8601 string is a NIF-loader concern, not a
+          Loader.validate rejection.
+
+      Minimal capability + duration example (drone_1 only holds "fly", so the planner picks the
+      "fly" alternative over "walk", which human_1 lacks):
+        {"@context":{"vsekai":"https://v-sekai.org/","domain":"vsekai:planning/domain/"},
+         "@type":"domain:Definition","name":"capability_demo",
+         "variables":[{"name":"loc","init":{"drone_1":"base"}}],
+         "capabilities":{"entities":{"drone_1":["fly"]},"actions":{"a_fly":["fly"],"a_walk":["walk"]}},
+         "actions":{"a_fly":{"duration":"PT5M","params":["agent","to"],
+                              "body":[{"pointer/set":"/loc/{agent}","value":"{to}"}]},
+                    "a_walk":{"duration":"PT30M","params":["agent","to"],
+                              "body":[{"pointer/set":"/loc/{agent}","value":"{to}"}]}},
+         "methods":{"move":{"params":["agent","to"],
+                             "alternatives":[{"name":"fly","subtasks":[["a_fly","{agent}","{to}"]]},
+                                             {"name":"walk","subtasks":[["a_walk","{agent}","{to}"]]}]}},
+         "tasks":[["move","drone_1","city"]]}
+      See also the bundled taskweft://domains/entity_capabilities.jsonld (capabilities) and
+      taskweft://domains/temporal_travel.jsonld (duration-only) resources.
+
+      Minimal TwCall example:
         {"@context":{"vsekai":"https://v-sekai.org/","domain":"vsekai:planning/domain/"},
          "@type":"domain:Definition","name":"demo",
          "variables":[{"name":"done","init":{"a":false,"b":false}}],
@@ -200,6 +243,29 @@ defmodule Taskweft.MCP.Server do
           "then call the `plan` tool with the merged domain. The planner solves each " <>
           "binding via the domain's goal methods; a multigoal additionally backjumps " <>
           "over which binding to satisfy first.",
+        state
+      )
+    end)
+  end
+
+  prompt "plan_capability_temporal",
+         "Sample workflow — build a domain using capability guards and/or action durations (RECTGTN 'R'/'C'/'T'), then plan it." do
+    title("Plan with capabilities / temporal duration")
+    arg(:domain, required: false, description: "Domain file name, e.g. entity_capabilities.jsonld or temporal_travel.jsonld")
+
+    render(fn args, state ->
+      domain = args[:domain] || "entity_capabilities.jsonld"
+
+      message(
+        "Read taskweft://domains/#{domain}. If it has a top-level \"capabilities\" object " <>
+          "({\"entities\": {<entity>: [<cap>,...]}, \"actions\": {<action>: [<cap>,...]}}), " <>
+          "note which capabilities each entity holds — the planner only lets an agent take an " <>
+          "action alternative it holds every required capability for (RECTGTN 'R'/'C'; this is a " <>
+          "plan-time guard, not a load-time validation). If any action carries a \"duration\" " <>
+          "(ISO 8601, e.g. \"PT5M\") that's RECTGTN 'T' — the `plan` tool's response already " <>
+          "includes a \"temporal\" block (STN consistency + per-step start/end) computed from " <>
+          "those durations, with no extra call needed. Then call the `plan` tool with the domain " <>
+          "JSON as-is (add a \"tasks\" entry if the bundled file doesn't already have one).",
         state
       )
     end)
