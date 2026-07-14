@@ -16,8 +16,6 @@ Download the binary from the
 
 ```sh
 taskweft plan <domain.jsonld>        # plan: from a file, --problem <d> <p>, or stdin
-taskweft temporal <domain> [problem] # plan + STN temporal metadata
-taskweft simulate <domain> [problem] # plan under failure probs (--probs, --seed)
 taskweft replan <fail_step> <domain> # replan after a step failure
 taskweft mcp [--http [--port N]]     # MCP server: stdio, or HTTP
 ```
