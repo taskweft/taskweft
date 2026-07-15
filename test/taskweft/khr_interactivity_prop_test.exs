@@ -964,4 +964,265 @@ defmodule Taskweft.KHRInteractivityPropTest do
 
     assert_plans(domain)
   end
+
+  # ---------------------------------------------------------------------------
+  # §02 Milestone 3 — vector/matrix algebra (issue #100)
+  # ---------------------------------------------------------------------------
+
+  test "math/rotate3D: rotating (1,0,0) by 90deg about Z gives (0,1,0)" do
+    v = khr("math/combine3", %{"a" => 1.0, "b" => 0.0, "c" => 0.0})
+    half = khr("math/div", %{"a" => khr("math/Pi"), "b" => 4.0})
+
+    q =
+      khr("math/combine4", %{
+        "a" => 0.0,
+        "b" => 0.0,
+        "c" => khr("math/sin", %{"a" => half}),
+        "d" => khr("math/cos", %{"a" => half})
+      })
+
+    result = khr("math/rotate3D", %{"a" => v, "b" => q})
+
+    assert_plans(
+      eval_domain(
+        khr("math/and", %{
+          "a" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract3", %{"a" => result, "b" => 0}), 0.0),
+              "b" => near_eq(khr("math/extract3", %{"a" => result, "b" => 1}), 1.0)
+            }),
+          "b" => near_eq(khr("math/extract3", %{"a" => result, "b" => 2}), 0.0)
+        })
+      )
+    )
+  end
+
+  test "math/rotate3D preserves vector length" do
+    v = khr("math/combine3", %{"a" => 3.0, "b" => 4.0, "c" => 0.0})
+
+    q =
+      khr("math/quatFromAxisAngle", %{
+        "a" => khr("math/combine3", %{"a" => 0.0, "b" => 0.0, "c" => 1.0}),
+        "b" => 0.9
+      })
+
+    result = khr("math/rotate3D", %{"a" => v, "b" => q})
+
+    assert_plans(
+      eval_domain(near_eq(khr("math/length", %{"a" => result}), khr("math/length", %{"a" => v})))
+    )
+  end
+
+  test "math/transform: identity 3x3 leaves the vector unchanged" do
+    m =
+      khr("math/combine3x3", %{
+        "a" => 1.0,
+        "b" => 0.0,
+        "c" => 0.0,
+        "d" => 0.0,
+        "e" => 1.0,
+        "f" => 0.0,
+        "g" => 0.0,
+        "h" => 0.0,
+        "i" => 1.0
+      })
+
+    v = khr("math/combine3", %{"a" => 2.0, "b" => 3.0, "c" => 4.0})
+    result = khr("math/transform", %{"a" => v, "b" => m})
+
+    assert_plans(
+      eval_domain(
+        khr("math/and", %{
+          "a" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract3", %{"a" => result, "b" => 0}), 2.0),
+              "b" => near_eq(khr("math/extract3", %{"a" => result, "b" => 1}), 3.0)
+            }),
+          "b" => near_eq(khr("math/extract3", %{"a" => result, "b" => 2}), 4.0)
+        })
+      )
+    )
+  end
+
+  test "math/transform: 2x2 scale matrix" do
+    m = khr("math/combine2x2", %{"a" => 2.0, "b" => 0.0, "c" => 0.0, "d" => 3.0})
+    v = khr("math/combine2", %{"a" => 1.0, "b" => 1.0})
+    result = khr("math/transform", %{"a" => v, "b" => m})
+
+    assert_plans(
+      eval_domain(
+        khr("math/and", %{
+          "a" => near_eq(khr("math/extract2", %{"a" => result, "b" => 0}), 2.0),
+          "b" => near_eq(khr("math/extract2", %{"a" => result, "b" => 1}), 3.0)
+        })
+      )
+    )
+  end
+
+  test "math/slerp: 2D midpoint between (1,0) and (0,1) is unit vector at 45deg" do
+    v1 = khr("math/combine2", %{"a" => 1.0, "b" => 0.0})
+    v2 = khr("math/combine2", %{"a" => 0.0, "b" => 1.0})
+    result = khr("math/slerp", %{"a" => v1, "b" => v2, "c" => 0.5})
+    expected = khr("math/cos", %{"a" => khr("math/div", %{"a" => khr("math/Pi"), "b" => 4.0})})
+
+    assert_plans(
+      eval_domain(
+        khr("math/and", %{
+          "a" => near_eq(khr("math/extract2", %{"a" => result, "b" => 0}), expected, 1.0e-6),
+          "b" => near_eq(khr("math/extract2", %{"a" => result, "b" => 1}), expected, 1.0e-6)
+        })
+      )
+    )
+  end
+
+  test "math/slerp: falls back to plain lerp when a vector has near-zero length" do
+    v1 = khr("math/combine2", %{"a" => 0.0, "b" => 0.0})
+    v2 = khr("math/combine2", %{"a" => 1.0, "b" => 1.0})
+    result = khr("math/slerp", %{"a" => v1, "b" => v2, "c" => 0.5})
+
+    assert_plans(
+      eval_domain(
+        khr("math/and", %{
+          "a" => near_eq(khr("math/extract2", %{"a" => result, "b" => 0}), 0.5),
+          "b" => near_eq(khr("math/extract2", %{"a" => result, "b" => 1}), 0.5)
+        })
+      )
+    )
+  end
+
+  test "math/transpose: 2x2 matrix" do
+    m = khr("math/combine2x2", %{"a" => 1.0, "b" => 2.0, "c" => 3.0, "d" => 4.0})
+    result = khr("math/transpose", %{"a" => m})
+
+    assert_plans(
+      eval_domain(
+        khr("math/and", %{
+          "a" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 0}), 1.0),
+              "b" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 1}), 3.0)
+            }),
+          "b" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 2}), 2.0),
+              "b" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 3}), 4.0)
+            })
+        })
+      )
+    )
+  end
+
+  test "math/determinant: 2x2 matrix" do
+    m = khr("math/combine2x2", %{"a" => 1.0, "b" => 2.0, "c" => 3.0, "d" => 4.0})
+
+    assert_plans(eval_domain(near_eq(khr("math/determinant", %{"a" => m}), -2.0)))
+  end
+
+  test "math/determinant: 3x3 diagonal matrix" do
+    m =
+      khr("math/combine3x3", %{
+        "a" => 2.0,
+        "b" => 0.0,
+        "c" => 0.0,
+        "d" => 0.0,
+        "e" => 3.0,
+        "f" => 0.0,
+        "g" => 0.0,
+        "h" => 0.0,
+        "i" => 4.0
+      })
+
+    assert_plans(eval_domain(near_eq(khr("math/determinant", %{"a" => m}), 24.0)))
+  end
+
+  test "math/inverse: invertible 2x2 matrix reports isValid=true and a correct inverse" do
+    m = khr("math/combine2x2", %{"a" => 2.0, "b" => 0.0, "c" => 0.0, "d" => 4.0})
+    result = khr("math/inverse", %{"a" => m})
+    is_valid = khr("math/inverse", %{"a" => m, "b" => 1})
+
+    assert_plans(
+      eval_domain(
+        khr("math/and", %{
+          "a" => is_valid,
+          "b" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 0}), 0.5),
+              "b" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 3}), 0.25)
+            })
+        })
+      )
+    )
+  end
+
+  test "math/inverse: singular matrix reports isValid=false and an all-zero value" do
+    m = khr("math/combine2x2", %{"a" => 1.0, "b" => 2.0, "c" => 2.0, "d" => 4.0})
+    result = khr("math/inverse", %{"a" => m})
+    is_valid = khr("math/inverse", %{"a" => m, "b" => 1})
+
+    refute_plans(eval_domain(is_valid))
+
+    assert_plans(
+      eval_domain(
+        khr("math/and", %{
+          "a" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 0}), 0.0),
+              "b" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 1}), 0.0)
+            }),
+          "b" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 2}), 0.0),
+              "b" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 3}), 0.0)
+            })
+        })
+      )
+    )
+  end
+
+  test "math/matMul: 2x2 matrix product" do
+    m1 = khr("math/combine2x2", %{"a" => 1.0, "b" => 2.0, "c" => 3.0, "d" => 4.0})
+    m2 = khr("math/combine2x2", %{"a" => 5.0, "b" => 6.0, "c" => 7.0, "d" => 8.0})
+    result = khr("math/matMul", %{"a" => m1, "b" => m2})
+
+    assert_plans(
+      eval_domain(
+        khr("math/and", %{
+          "a" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 0}), 19.0),
+              "b" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 1}), 22.0)
+            }),
+          "b" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 2}), 43.0),
+              "b" => near_eq(khr("math/extract2x2", %{"a" => result, "b" => 3}), 50.0)
+            })
+        })
+      )
+    )
+  end
+
+  test "math/matCompose: identity rotation/scale with translation yields a translation matrix" do
+    t = khr("math/combine3", %{"a" => 1.0, "b" => 2.0, "c" => 3.0})
+    rot = khr("math/combine4", %{"a" => 0.0, "b" => 0.0, "c" => 0.0, "d" => 1.0})
+    scale = khr("math/combine3", %{"a" => 1.0, "b" => 1.0, "c" => 1.0})
+    result = khr("math/matCompose", %{"a" => t, "b" => rot, "c" => scale})
+
+    assert_plans(
+      eval_domain(
+        khr("math/and", %{
+          "a" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract4x4", %{"a" => result, "b" => 3}), 1.0),
+              "b" => near_eq(khr("math/extract4x4", %{"a" => result, "b" => 7}), 2.0)
+            }),
+          "b" =>
+            khr("math/and", %{
+              "a" => near_eq(khr("math/extract4x4", %{"a" => result, "b" => 11}), 3.0),
+              "b" => near_eq(khr("math/extract4x4", %{"a" => result, "b" => 15}), 1.0)
+            })
+        })
+      )
+    )
+  end
 end
