@@ -223,7 +223,10 @@ defmodule Taskweft.MCP.Server do
     title("Plan a goal / multigoal")
     arg(:domain, required: false, description: "Domain file name, e.g. blocks_world.jsonld")
 
-    arg(:kind, required: false, description: ~s|Task kind: "goal" (TwGoal) or "multigoal" (TwMultiGoal)|)
+    arg(:kind,
+      required: false,
+      description: "Task kind: \"goal\" (TwGoal) or \"multigoal\" (TwMultiGoal)"
+    )
 
     render(fn args, state ->
       domain = args[:domain] || "<domain>.jsonld"
