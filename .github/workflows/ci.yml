@@ -29,22 +29,22 @@ jobs:
           elixir-version: "1.17"
           otp-version: "27"
 
-      # Cache fetched dep sources only, not _build: mix will not recompile a
-      # git dep whose app version is unchanged even when its locked sha moves,
-      # so a cached _build silently runs a stale NIF against new domains. The
-      # C++20 NIF build is quick, so compiling fresh each run keeps it correct.
+      # Every dependency is Hex-sourced now (no more git: deps) — a version
+      # bump always changes mix.lock's hash, so exact-match caching on both
+      # deps/ and _build is safe: Hex's version-based resolution (unlike a
+      # git dep's commit sha) is exactly what mix.lock's hash captures, so
+      # there's no way to hit a stale-but-cache-key-matching build.
       #
-      # No restore-keys: a prefix-match fallback can restore a deps/ tree from
-      # an older mix.lock whose git deps (e.g. taskweft_nif) are pinned to a
-      # different commit than the current lock — `mix deps.get` does not
-      # reliably detect and fix that mismatch on its own, so a stale NIF
-      # silently gets compiled and tested. Only ever restore on an exact
-      # mix.lock hash match; anything else gets a correct, fresh checkout.
-      - name: Cache Mix deps
+      # No restore-keys: a prefix-match fallback could otherwise restore a
+      # tree from an older, different mix.lock. Only ever restore on an
+      # exact hash match; anything else gets a correct, fresh checkout/build.
+      - name: Cache Mix deps + _build
         uses: actions/cache@v6
         with:
-          path: deps
-          key: ${{ runner.os }}-taskweft-deps-${{ hashFiles('mix.lock') }}
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-taskweft-build-${{ hashFiles('mix.lock') }}
 
       - name: Install dependencies
         run: mix deps.get
