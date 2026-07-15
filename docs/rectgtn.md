@@ -62,6 +62,34 @@ A conjunction of desired `(pointer, value)` bindings, in two shapes:
 A `tasks` list may freely mix call arrays and multigoal objects:
 `"tasks": [["move_one", "a", "table"], {"multigoal": {"pos": {"c": "b"}}}]`.
 
+## Relationships — the ReBAC graph
+
+The "Relationship-Enabled" in RECTGTN is a standalone ReBAC (Relationship-Based
+Access Control) graph engine, separate from a plan domain's `capabilities`
+object below — `Taskweft.rebac_check/5` and `Taskweft.rebac_expand/4` (backed
+by `taskweft_rebac`) answer relationship questions on their own, independent
+of `plan`/`replan`.
+
+A graph is `{"edges": [{"subject", "object", "rel"}], "definitions": {}}`.
+Relations are `HAS_CAPABILITY`, `CONTROLS`, `OWNS`, `IS_MEMBER_OF`,
+`DELEGATED_TO`, `SUPERVISOR_OF`, `PARTNER_OF`, `CAN_ENTER`, `CAN_INSTANCE`.
+
+```elixir
+graph =
+  Taskweft.ReBAC.new_graph()
+  |> Taskweft.ReBAC.add_edge("alice", "team_x", "IS_MEMBER_OF")
+  |> Taskweft.ReBAC.add_edge("team_x", "resource_1", "OWNS")
+
+Taskweft.ReBAC.check_rel(graph, "alice", "OWNS", "resource_1")
+# => true, via the IS_MEMBER_OF -> OWNS chain
+```
+
+Relation *expressions* compose beyond a single relation name: `union`,
+`intersection`, `difference`, and `tuple_to_userset` (follow a `pivot_rel`
+chain, e.g. membership, before checking the inner expression) — pass one of
+these as `expr_json` to `Taskweft.rebac_check/5` instead of a bare relation
+name.
+
 ## Capabilities and temporal duration
 
 A `TwCall`, `TwGoal`, or `TwMultiGoal` domain may add either or both.
