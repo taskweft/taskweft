@@ -71,7 +71,11 @@ exposes standalone via `Taskweft.rebac_check/5`/`Taskweft.rebac_expand/4` —
 and action guards are evaluated against it, so a capability requirement can
 be a composed relation expression, not just a direct edge (ADR 0004).
 
-A graph is `{"edges": [{"subject", "object", "rel"}], "definitions": {}}`.
+A graph is `{"edges": [{"subject", "rel", "object"}], "definitions": {}}` —
+field order matches the canonical Lean model's `⟨subject, RelationType,
+object⟩` tuple (`Planner.Capabilities`); JSON keys are looked up by name, not
+position, so this is purely for readability/consistency, not a wire format
+requirement.
 Relations are `HAS_CAPABILITY`, `CONTROLS`, `OWNS`, `IS_MEMBER_OF`,
 `DELEGATED_TO`, `SUPERVISOR_OF`, `PARTNER_OF`, `CAN_ENTER`, `CAN_INSTANCE`.
 
@@ -113,8 +117,8 @@ holder:
 
 ```json
 "capabilities": {
-  "graph": {"edges": [{"subject": "alice", "object": "flight_team", "rel": "IS_MEMBER_OF"},
-                      {"subject": "flight_team", "object": "fly", "rel": "HAS_CAPABILITY"}]},
+  "graph": {"edges": [{"subject": "alice", "rel": "IS_MEMBER_OF", "object": "flight_team"},
+                      {"subject": "flight_team", "rel": "HAS_CAPABILITY", "object": "fly"}]},
   "actions": {"a_fly": ["fly"]}
 }
 ```
