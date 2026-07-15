@@ -1,7 +1,7 @@
 defmodule Taskweft.MixProject do
   use Mix.Project
 
-  @version "0.3.0"
+  @version "0.4.0-dev.0"
 
   def project do
     [
@@ -11,7 +11,17 @@ defmodule Taskweft.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       releases: releases(),
-      dialyzer: [plt_add_apps: [:mix], ignore_warnings: ".dialyzer_ignore.exs"]
+      dialyzer: [plt_add_apps: [:mix], ignore_warnings: ".dialyzer_ignore.exs"],
+      description: "HTN planner exposing plan/replan over the RECTGTN model via MCP",
+      package: package(),
+      source_url: "https://github.com/taskweft/taskweft"
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => "https://github.com/taskweft/taskweft"}
     ]
   end
 
@@ -101,11 +111,11 @@ defmodule Taskweft.MixProject do
 
   defp deps do
     [
-      {:taskweft_nif, github: "taskweft/nif"},
-      {:taskweft_rebac, github: "taskweft/rebac"},
-      {:taskweft_mcp_client, github: "taskweft/mcp-client"},
-      {:taskweft_mcp, github: "taskweft/mcp"},
-      {:ex_mcp, "~> 1.0.0-rc", override: true},
+      {:taskweft_nif, "~> 0.2.0-dev"},
+      {:taskweft_rebac, "~> 0.2.0-dev"},
+      {:taskweft_mcp_client, "~> 0.2.0-dev"},
+      {:taskweft_mcp, "~> 0.2.0-dev"},
+      {:ex_mcp, "~> 1.0.0-rc"},
       {:burrito, "~> 1.5"},
       {:json_ld, "~> 1.0"},
       {:rdf, "~> 3.0"},
@@ -114,7 +124,8 @@ defmodule Taskweft.MixProject do
       {:propcheck, "~> 1.4", only: [:test, :dev], runtime: false},
       {:mox, "~> 1.2", only: :test},
       {:benchee, "~> 1.3", only: :dev, runtime: false},
-      {:timex, "~> 3.7", only: :test}
+      {:timex, "~> 3.7", only: :test},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
 end
