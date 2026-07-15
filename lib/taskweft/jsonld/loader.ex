@@ -613,7 +613,8 @@ defmodule Taskweft.JSONLD.Loader do
 
   defp decode(json) do
     case Jason.decode(json) do
-      {:ok, value} -> {:ok, value}
+      {:ok, value} ->
+        {:ok, value}
 
       {:error, %Jason.DecodeError{} = e} ->
         {:error, "invalid JSON: #{Exception.message(e)}#{decode_hint(json)}"}
