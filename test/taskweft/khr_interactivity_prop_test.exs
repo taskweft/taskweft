@@ -1225,4 +1225,86 @@ defmodule Taskweft.KHRInteractivityPropTest do
       )
     )
   end
+
+  # ---------------------------------------------------------------------------
+  # §02 combine3x3 / combine4x4 / quatFromAngles (structural, Milestone 2)
+  # ---------------------------------------------------------------------------
+
+  test "math/combine3x3 then extract3x3 roundtrip" do
+    m =
+      khr("math/combine3x3", %{
+        "a" => 1.0,
+        "b" => 2.0,
+        "c" => 3.0,
+        "d" => 4.0,
+        "e" => 5.0,
+        "f" => 6.0,
+        "g" => 7.0,
+        "h" => 8.0,
+        "i" => 9.0
+      })
+
+    assert_plans(
+      eval_domain(
+        khr("math/eq", %{"a" => khr("math/extract3x3", %{"a" => m, "b" => 4}), "b" => 5.0})
+      )
+    )
+  end
+
+  test "math/combine4x4 then extract4x4 roundtrip" do
+    m =
+      khr("math/combine4x4", %{
+        "a" => 1.0,
+        "b" => 2.0,
+        "c" => 3.0,
+        "d" => 4.0,
+        "e" => 5.0,
+        "f" => 6.0,
+        "g" => 7.0,
+        "h" => 8.0,
+        "i" => 9.0,
+        "j" => 10.0,
+        "k" => 11.0,
+        "l" => 12.0,
+        "m" => 13.0,
+        "n" => 14.0,
+        "o" => 15.0,
+        "p" => 16.0
+      })
+
+    assert_plans(
+      eval_domain(
+        khr("math/eq", %{"a" => khr("math/extract4x4", %{"a" => m, "b" => 15}), "b" => 16.0})
+      )
+    )
+  end
+
+  test "math/quatFromAngles: identity when x=y=z=0" do
+    q = khr("math/quatFromAngles", %{"x" => 0.0, "y" => 0.0, "z" => 0.0})
+
+    assert_plans(
+      eval_domain(
+        khr("math/eq", %{"a" => khr("math/extract4", %{"a" => q, "b" => 3}), "b" => 1.0})
+      )
+    )
+  end
+
+  test "math/quatFromAngles: rotating x by Pi matches quatFromAxisAngle around X" do
+    q1 = khr("math/quatFromAngles", %{"x" => khr("math/Pi"), "y" => 0.0, "z" => 0.0})
+
+    q2 =
+      khr("math/quatFromAxisAngle", %{
+        "a" => khr("math/combine3", %{"a" => 1.0, "b" => 0.0, "c" => 0.0}),
+        "b" => khr("math/Pi")
+      })
+
+    assert_plans(
+      eval_domain(
+        near_eq(
+          khr("math/extract4", %{"a" => q1, "b" => 3}),
+          khr("math/extract4", %{"a" => q2, "b" => 3})
+        )
+      )
+    )
+  end
 end
