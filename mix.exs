@@ -25,7 +25,7 @@ defmodule Taskweft.MCP.MixProject do
       {:taskweft_nif, "~> 0.2.0-dev"},
       {:taskweft_plans, "~> 0.2.0-dev"},
       {:taskweft_mcp_client, "~> 0.2.0-dev"},
-      {:ex_mcp, "~> 1.0.0-rc", override: true},
+      {:ex_mcp, "~> 1.0.0-rc"},
       {:jason, "~> 1.4"},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:propcheck, "~> 1.4", only: [:test, :dev], runtime: false},
