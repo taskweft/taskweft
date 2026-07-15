@@ -10,6 +10,7 @@ import Planner.ReBACCorrectness
 import Planner.ReBACGoal
 import Planner.DomainCache
 import Planner.ExpandIndex
+import Planner.FailCache
 -- Example proofs: soundness, completeness, optimality
 import Planner.SimpleTravelExample
 import Planner.BlocksWorldExamples
@@ -19,3 +20,4 @@ import Planner.TemporalTravelExample
 import Planner.GoalStateEquivalence
 import Planner.MultiGoalDecomposition
 import Planner.ChainN
+import Planner.WitnessDAG
