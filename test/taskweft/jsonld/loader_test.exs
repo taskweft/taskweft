@@ -286,6 +286,20 @@ defmodule Taskweft.JSONLD.LoaderTest do
     end
   end
 
+  describe "load_string invalid JSON diagnostics" do
+    test "returns the base invalid JSON message for malformed input" do
+      assert {:error, msg} = Loader.load_string("not json")
+      assert msg =~ "invalid JSON"
+    end
+
+    test "adds an actionable hint for escaped/double-encoded payloads" do
+      assert {:error, msg} = Loader.load_string("\\{\"@type\":\"domain:Definition\"}")
+      assert msg =~ "invalid JSON"
+      assert msg =~ "escaped/double-encoded"
+      assert msg =~ "raw JSON text"
+    end
+  end
+
   describe "bundled fixtures round-trip through the loader" do
     test "blocks_world_goal problem file validates" do
       path = Path.join([@plans, "problems", "blocks_world_goal.jsonld"])

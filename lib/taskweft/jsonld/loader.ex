@@ -613,10 +613,25 @@ defmodule Taskweft.JSONLD.Loader do
 
   defp decode(json) do
     case Jason.decode(json) do
-      {:ok, value} -> {:ok, value}
-      {:error, %Jason.DecodeError{} = e} -> {:error, "invalid JSON: #{Exception.message(e)}"}
+      {:ok, value} ->
+        {:ok, value}
+
+      {:error, %Jason.DecodeError{} = e} ->
+        {:error, "invalid JSON: #{Exception.message(e)}#{decode_hint(json)}"}
     end
   end
+
+  defp decode_hint(json) when is_binary(json) do
+    trimmed = String.trim_leading(json)
+
+    if String.starts_with?(trimmed, "\\") do
+      ". input appears to be escaped/double-encoded; send raw JSON text starting with '{' (do not pre-escape quotes or braces)"
+    else
+      ""
+    end
+  end
+
+  defp decode_hint(_), do: ""
 
   defp encode(value) do
     case Jason.encode(value) do
