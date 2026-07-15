@@ -75,6 +75,13 @@ defmodule Taskweft.Iso8601DurationSpecTest do
     {"P1.5DT1H", false, true, false},
     {"PT1.5H1.5M", false, true, false},
 
+    # All-zero fraction digits still count as "a fraction is present" —
+    # a fraction of exactly zero on a non-last component is still a
+    # fraction on a non-last component. Regression: our parser used to
+    # gate the "fraction seen" flag on frac_milli != 0, so ".0" (whose
+    # numeric value is zero) slipped past undetected.
+    {"P0.0Y0M", false, true, false},
+
     # `P` alone — we and Timex accept (zero), spec rejects (no body)
     {"P", true, true, false}
   ]
