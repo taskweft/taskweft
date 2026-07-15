@@ -15,7 +15,7 @@ defmodule Taskweft.CLITest do
   describe "meta subcommands (no NIF)" do
     test "version prints name, version, and build commit" do
       assert {:ok, out} = CLI.run(["version"])
-      assert IO.iodata_to_binary(out) =~ ~r/^taskweft \d+\.\d+\.\d+ \(.+\)$/
+      assert IO.iodata_to_binary(out) =~ ~r/^taskweft \d+\.\d+\.\d+(-[0-9A-Za-z.-]+)? \(.+\)$/
     end
 
     test "--version alias" do
