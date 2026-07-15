@@ -1,6 +1,6 @@
 # Unify domain `capabilities` with the ReBAC relation-expression engine
 
-- Status: accepted (design only — not yet implemented)
+- Status: accepted, implemented (taskweft-nif#15, taskweft#96 followups)
 - Date: 2026-07-15
 - Deciders: K. S. Ernest (iFire) Lee
 
@@ -59,42 +59,48 @@ guard evaluation goes through the same relation-expression engine
 `Taskweft.ReBAC` already implements, so a domain *can* opt into
 transitive/composed expressions without a second mechanism being invented.
 
-Concretely (not yet implemented):
+Implemented as:
 
 - **Domain shape**: `capabilities` gains an optional `"graph"` key (the same
   `{"edges": [...], "definitions": {...}}` wire format `Taskweft.ReBAC`
-  already uses) and lets `"actions"` entries be either the existing bare
-  capability-name-list (sugar for direct `HAS_CAPABILITY` edges) or a full
-  relation-expression object (`{"type": "union", ...}`).
-- **Loader** (`tw_loader.hpp`): stop pre-flattening into `_cap_*` booleans.
-  Instead, parse the optional graph + per-action expression and store them
-  on the domain; expand the flat sugar shape into an equivalent graph +
-  `base` expression at load time so both shapes reach the planner in one
-  representation.
-- **Planner** (`tw_planner.hpp`): action guards call into `tw_rebac.hpp`'s
-  expression evaluator (already used by `Taskweft.ReBAC.check/5`) at
-  guard-check time against the domain's graph, instead of reading a
+  already uses, inline in the domain JSON-LD — not referenced separately)
+  and lets `"actions"` entries be either the existing bare capability-name
+  string (sugar for a direct `HAS_CAPABILITY` edge) or a full
+  `{"rel": <relation-expression>, "object": <string>}` requirement.
+- **Loader** (`tw_loader.hpp`): stopped pre-flattening into only `_cap_*`
+  booleans. `capabilities.entities` now also compiles to `HAS_CAPABILITY`
+  edges on a `TwReBAC::TwReBACGraph` (the `_cap_*` state vars are still
+  populated too, for introspection/back-compat); the optional `"graph"` key
+  merges further edges/definitions into the same graph.
+- **Action guards**: turned out to need no `tw_planner.hpp` changes at all —
+  `tw_planner.hpp` already treated actions as an opaque `TwActionFn`
+  (state-in/state-out), so the guard-evaluation change is entirely inside
+  the `TwActionFn`-wrapping closure `tw_loader.hpp` builds per action: it now
+  calls `TwReBAC::check_expr` against the compiled `(relation-expression,
+  object)` requirements and the domain's graph, instead of reading a
   precomputed boolean.
-- **Validator** (`lib/taskweft/jsonld/loader.ex`): extend `check_capabilities`
-  to accept the new `"graph"` key and either shape for `"actions"` entries.
-- **`taskweft_rebac`**: no interface change needed — the planner becomes a
-  new caller of the existing `check/5`, not a reason to change its API.
+- **Validator** (`lib/taskweft/jsonld/loader.ex`): `check_capabilities`
+  extended to accept the new `"graph"` key and either shape for `"actions"`
+  entries.
+- **`taskweft_rebac`**: no interface change — the planner became a new
+  caller of the existing `check_expr`, not a reason to change its API.
 
 ### Consequences
 
 - Good: one authorization model instead of two; a domain can express
-  transitive/composed capability requirements without inventing new syntax.
+  transitive/composed capability requirements without inventing new syntax
+  (verified: a transitive team-membership case, impossible under the old
+  flat model, now plans correctly — see
+  `test/taskweft/capabilities_rebac_test.exs`).
 - Good: existing bundled domains keep working unchanged (flat shape is sugar
-  for the simple case, not removed).
-- Bad: touches the C++ planner's guard-evaluation path, the loader's domain
-  representation, and the JSON-LD validator — a real cross-cutting change,
-  not a quick patch. Sequence after other in-flight NIF work (KHR
-  Interactivity Tier 1/2, ADR 0002/0003) rather than interleaving.
-- Open, deliberately not resolved here: whether the `"graph"` key lives
-  inline in the domain JSON-LD or is referenced separately (e.g. loaded from
-  `taskweft_plans` alongside the domain) — a real design question for
-  whoever implements this, not to be guessed now.
+  for the simple case, not removed) — full test suite (253 tests) passes
+  with no regressions.
+- Neutral: `tw_planner.hpp` needed zero changes, simpler than this ADR's
+  original estimate — the existing opaque-`TwActionFn` boundary already
+  isolated guard evaluation inside `tw_loader.hpp`.
 
 ## More Information
 
-Tracked as taskweft/taskweft#96. Not yet implemented as of this ADR.
+Tracked as taskweft/taskweft#96. Implemented in taskweft-nif#15 (C++ guard
+evaluation) and taskweft#96's own PR (Elixir validator + tests), published as
+`taskweft_nif` 0.2.0-dev.1 / `taskweft` 0.4.0-dev.4.
