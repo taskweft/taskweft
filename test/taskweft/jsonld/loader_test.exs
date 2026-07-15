@@ -155,13 +155,68 @@ defmodule Taskweft.JSONLD.LoaderTest do
     test "rejects a capability list containing a non-string" do
       doc = base(%{"capabilities" => %{"entities" => %{"drone_1" => [1]}}})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "capabilities.entities.drone_1 must be an array of strings"
+      assert msg =~ "capabilities.entities.drone_1: must be an array of strings"
     end
 
     test "rejects a capability value that is not an array" do
       doc = base(%{"capabilities" => %{"actions" => %{"a_fly" => "fly"}}})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "capabilities.actions.a_fly must be an array of strings"
+      assert msg =~ "capabilities.actions.a_fly: each requirement must be"
+    end
+
+    test "accepts a full relation-expression requirement (ADR 0004)" do
+      doc =
+        base(%{
+          "capabilities" => %{
+            "actions" => %{
+              "a_fly" => [
+                %{"rel" => %{"type" => "base", "rel" => "HAS_CAPABILITY"}, "object" => "fly"}
+              ]
+            }
+          }
+        })
+
+      assert :ok = Loader.validate(doc, %{})
+    end
+
+    test "rejects a relation-expression requirement missing \"object\"" do
+      doc =
+        base(%{
+          "capabilities" => %{
+            "actions" => %{
+              "a_fly" => [%{"rel" => %{"type" => "base", "rel" => "HAS_CAPABILITY"}}]
+            }
+          }
+        })
+
+      assert {:error, msg} = Loader.validate(doc, %{})
+      assert msg =~ "capabilities.actions.a_fly: each requirement must be"
+    end
+
+    test "accepts an explicit ReBAC graph" do
+      doc =
+        base(%{
+          "capabilities" => %{
+            "graph" => %{
+              "edges" => [%{"subject" => "team", "object" => "fly", "rel" => "HAS_CAPABILITY"}],
+              "definitions" => %{}
+            }
+          }
+        })
+
+      assert :ok = Loader.validate(doc, %{})
+    end
+
+    test "rejects a malformed ReBAC graph edge" do
+      doc =
+        base(%{
+          "capabilities" => %{
+            "graph" => %{"edges" => [%{"subject" => "team", "object" => "fly"}]}
+          }
+        })
+
+      assert {:error, msg} = Loader.validate(doc, %{})
+      assert msg =~ "capabilities.graph.edges"
     end
   end
 

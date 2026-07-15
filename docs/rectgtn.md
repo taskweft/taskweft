@@ -62,13 +62,14 @@ A conjunction of desired `(pointer, value)` bindings, in two shapes:
 A `tasks` list may freely mix call arrays and multigoal objects:
 `"tasks": [["move_one", "a", "table"], {"multigoal": {"pos": {"c": "b"}}}]`.
 
-## Relationships — the ReBAC graph
+## Relationships and capabilities — one ReBAC graph
 
-The "Relationship-Enabled" in RECTGTN is a standalone ReBAC (Relationship-Based
-Access Control) graph engine, separate from a plan domain's `capabilities`
-object below — `Taskweft.rebac_check/5` and `Taskweft.rebac_expand/4` (backed
-by `taskweft_rebac`) answer relationship questions on their own, independent
-of `plan`/`replan`.
+RECTGTN's "Relationship-Enabled" and "Capability" are the same engine: a
+domain's `capabilities` object is compiled into a ReBAC (Relationship-Based
+Access Control) graph — the same graph `Taskweft.ReBAC` (`taskweft_rebac`)
+exposes standalone via `Taskweft.rebac_check/5`/`Taskweft.rebac_expand/4` —
+and action guards are evaluated against it, so a capability requirement can
+be a composed relation expression, not just a direct edge (ADR 0004).
 
 A graph is `{"edges": [{"subject", "object", "rel"}], "definitions": {}}`.
 Relations are `HAS_CAPABILITY`, `CONTROLS`, `OWNS`, `IS_MEMBER_OF`,
@@ -86,25 +87,39 @@ Taskweft.ReBAC.check_rel(graph, "alice", "OWNS", "resource_1")
 
 Relation *expressions* compose beyond a single relation name: `union`,
 `intersection`, `difference`, and `tuple_to_userset` (follow a `pivot_rel`
-chain, e.g. membership, before checking the inner expression) — pass one of
-these as `expr_json` to `Taskweft.rebac_check/5` instead of a bare relation
-name.
+chain, e.g. membership, before checking the inner expression).
 
 ## Capabilities and temporal duration
 
 A `TwCall`, `TwGoal`, or `TwMultiGoal` domain may add either or both.
 
 **Capabilities** — a top-level `capabilities` object binds which entities hold
-which capabilities, and which capabilities each action requires:
+which capabilities, which capabilities each action requires, and (optionally)
+an explicit relationship graph:
 
 ```json
 "capabilities": {
   "entities": {"<entity>": ["<cap>", ...], ...},
-  "actions":   {"<action>": ["<cap>", ...], ...}
+  "actions":   {"<action>": ["<cap>", {"rel": <relation-expression>, "object": "<obj>"}, ...], ...},
+  "graph":     {"edges": [...], "definitions": {}}
 }
 ```
 
-An action only applies to an agent holding every capability it requires; the
+`entities` compiles to direct `HAS_CAPABILITY` edges. Each `actions` entry is
+either a bare capability name (sugar for a direct `HAS_CAPABILITY` check) or
+a full `{"rel": expr, "object": obj}` requirement — e.g. an agent qualifies if
+it's a *member of a team* that holds the capability, not just a direct
+holder:
+
+```json
+"capabilities": {
+  "graph": {"edges": [{"subject": "alice", "object": "flight_team", "rel": "IS_MEMBER_OF"},
+                      {"subject": "flight_team", "object": "fly", "rel": "HAS_CAPABILITY"}]},
+  "actions": {"a_fly": ["fly"]}
+}
+```
+
+An action only applies to an agent for whom every requirement holds; the
 planner tries the next alternative otherwise.
 
 **Temporal duration** — any action may carry `"duration": "<ISO 8601>"` (e.g.
@@ -136,4 +151,4 @@ env["completed_steps"] == length(Jason.decode!(plan_json))
 - [ADR 0001](https://github.com/taskweft/taskweft/blob/main/docs/adr/0001-gltf-interactivity-node-shape.md) — the action-body node shape (`eval` + `pointer/set`).
 - [ADR 0002](https://github.com/taskweft/taskweft/blob/main/docs/adr/0002-khr-interactivity-tier1-node-conventions.md) — the glTF Interactivity node catalog conventions.
 - [ADR 0003](https://github.com/taskweft/taskweft/blob/main/docs/adr/0003-khr-interactivity-tier2-execution-strategy.md) — the planned flow-graph execution engine.
-- [ADR 0004](https://github.com/taskweft/taskweft/blob/main/docs/adr/0004-unify-domain-capabilities-with-rebac-graph.md) — the planned unification of domain capabilities with the ReBAC relation-expression engine (issue #96).
+- [ADR 0004](https://github.com/taskweft/taskweft/blob/main/docs/adr/0004-unify-domain-capabilities-with-rebac-graph.md) — unifying domain capabilities with the ReBAC relation-expression engine (issue #96).

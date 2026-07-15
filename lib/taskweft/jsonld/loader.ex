@@ -223,11 +223,20 @@ defmodule Taskweft.JSONLD.Loader do
   end
 
   # Top-level `capabilities` (RECTGTN 'R'/'C') gates which entity may take
-  # which action — a ReBAC HAS_CAPABILITY guard, not itself checked against
-  # `variables`/`actions` names (an entity or action naming a var/action that
-  # doesn't exist is a planner-side no-op, not a load-time error). Only the
-  # shape is validated here: `entities`/`actions` are each optional objects of
-  # name -> array of capability strings.
+  # which action, evaluated against a ReBAC relation-expression graph
+  # (ADR 0004, taskweft#96) rather than precomputed booleans — not itself
+  # checked against `variables`/`actions` names (an entity or action naming a
+  # var/action that doesn't exist is a planner-side no-op, not a load-time
+  # error). Shape:
+  #   - `entities`: optional object of name -> array of capability strings
+  #     (compiles to direct HAS_CAPABILITY edges).
+  #   - `actions`: optional object of name -> array of requirements, each
+  #     either a bare capability string (sugar for a direct HAS_CAPABILITY
+  #     check) or `{"rel": <relation-expression>, "object": <string>}` for
+  #     the general case.
+  #   - `graph`: optional explicit relationship graph, same wire format as
+  #     `Taskweft.ReBAC`'s graph_json (`{"edges": [...], "definitions": {}}`),
+  #     merged with the edges `entities` compiles.
   defp check_capabilities(doc) do
     case Map.get(doc, "capabilities") do
       nil -> :ok
@@ -237,34 +246,92 @@ defmodule Taskweft.JSONLD.Loader do
   end
 
   defp check_capabilities_shape(caps) do
-    with :ok <- check_capability_group(caps, "entities"),
-         :ok <- check_capability_group(caps, "actions") do
+    with :ok <- check_capability_group(caps, "entities", &check_capability_list/1),
+         :ok <- check_capability_group(caps, "actions", &check_action_requirement_list/1),
+         :ok <- check_rebac_graph(Map.get(caps, "graph")) do
       :ok
     end
   end
 
-  defp check_capability_group(caps, key) do
+  defp check_capability_group(caps, key, list_checker) do
     case Map.get(caps, key) do
-      nil -> :ok
-      group when is_map(group) -> check_capability_lists(group, key)
-      other -> {:error, "expected capabilities.#{key} to be an object, got #{json_type(other)}"}
+      nil ->
+        :ok
+
+      group when is_map(group) ->
+        Enum.reduce_while(group, :ok, fn {name, list}, _ ->
+          case list_checker.(list) do
+            :ok -> {:cont, :ok}
+            :error -> {:halt, {:error, "capabilities.#{key}.#{name}: #{list_checker_error(key)}"}}
+          end
+        end)
+
+      other ->
+        {:error, "expected capabilities.#{key} to be an object, got #{json_type(other)}"}
     end
   end
 
-  defp check_capability_lists(group, key) do
-    Enum.reduce_while(group, :ok, fn {name, caps}, _ ->
-      case check_capability_list(caps) do
-        :ok -> {:cont, :ok}
-        :error -> {:halt, {:error, "capabilities.#{key}.#{name} must be an array of strings"}}
-      end
-    end)
-  end
+  defp list_checker_error("actions"),
+    do: "each requirement must be a capability string or {\"rel\": expr, \"object\": string}"
+
+  defp list_checker_error(_), do: "must be an array of strings"
 
   defp check_capability_list(caps) when is_list(caps) do
     if Enum.all?(caps, &is_binary/1), do: :ok, else: :error
   end
 
   defp check_capability_list(_), do: :error
+
+  defp check_action_requirement_list(reqs) when is_list(reqs) do
+    if Enum.all?(reqs, &valid_action_requirement?/1), do: :ok, else: :error
+  end
+
+  defp check_action_requirement_list(_), do: :error
+
+  defp valid_action_requirement?(req) when is_binary(req), do: true
+
+  defp valid_action_requirement?(%{"rel" => rel, "object" => object}) when is_binary(object),
+    do: is_map(rel)
+
+  defp valid_action_requirement?(_), do: false
+
+  defp check_rebac_graph(nil), do: :ok
+
+  defp check_rebac_graph(graph) when is_map(graph) do
+    with :ok <- check_rebac_edges(Map.get(graph, "edges")),
+         :ok <- check_rebac_definitions(Map.get(graph, "definitions")) do
+      :ok
+    end
+  end
+
+  defp check_rebac_graph(other),
+    do: {:error, "expected capabilities.graph to be an object, got #{json_type(other)}"}
+
+  defp check_rebac_edges(nil), do: :ok
+
+  defp check_rebac_edges(edges) when is_list(edges) do
+    if Enum.all?(edges, &valid_rebac_edge?/1) do
+      :ok
+    else
+      {:error,
+       ~s(capabilities.graph.edges: each entry must be {"subject": string, "object": string, "rel": string})}
+    end
+  end
+
+  defp check_rebac_edges(other),
+    do: {:error, "expected capabilities.graph.edges to be an array, got #{json_type(other)}"}
+
+  defp valid_rebac_edge?(%{"subject" => s, "object" => o, "rel" => r}),
+    do: is_binary(s) and is_binary(o) and is_binary(r)
+
+  defp valid_rebac_edge?(_), do: false
+
+  defp check_rebac_definitions(nil), do: :ok
+  defp check_rebac_definitions(defs) when is_map(defs), do: :ok
+
+  defp check_rebac_definitions(other),
+    do:
+      {:error, "expected capabilities.graph.definitions to be an object, got #{json_type(other)}"}
 
   # Per-action `duration` (RECTGTN 'T') feeds the temporal/STN block; unlike
   # capabilities this has a concrete grammar (ISO 8601), so a malformed value
