@@ -181,6 +181,15 @@ defmodule Taskweft.MCP.Server do
   # Every bundled `.jsonld` under priv/plans/{domains,problems} is readable. 1.0's
   # `resource` needs a literal URI, so the per-file set is exposed as two templates.
 
+  resource "taskweft://meta", "Taskweft MCP metadata" do
+    title("Taskweft metadata")
+    mime_type("application/json")
+
+    read(fn _args, _state ->
+      {:ok, Jason.encode!(%{"name" => "taskweft", "version" => "0.1.0"})}
+    end)
+  end
+
   resource_template "taskweft://domains/{file}", "JSON-LD HTN domain" do
     title("HTN domain")
     mime_type("application/ld+json")
@@ -356,43 +365,43 @@ defmodule Taskweft.MCP.Server do
   defp plan_with_optional_explain(normalized, false), do: Taskweft.plan(normalized)
 
   defp plan_with_optional_explain(normalized, true) do
-    case Taskweft.plan(normalized) do
+    case Taskweft.plan_explain(normalized) do
       {:ok, result_json} ->
         with {:ok, domain} <- Jason.decode(normalized),
              {:ok, result} <- Jason.decode(result_json) do
-          explain = %{
-            "mode" => "explain",
-            "status" => "ok",
-            "summary" => "plan found",
-            "solution_tree" => build_solution_tree(result),
-            "diagnostics" => scan_domain_diagnostics(domain)
-          }
-
-          {:ok, Jason.encode!(Map.put(result, "explain", explain))}
+          diagnostics = scan_domain_diagnostics(domain)
+          explain = merge_explain_payload(result["explain"], diagnostics, result)
+          payload = Map.put(result, "explain", explain)
+          {:ok, Jason.encode!(payload)}
         else
           _ -> {:ok, result_json}
         end
 
-      {:error, "no_plan"} ->
-        with {:ok, domain} <- Jason.decode(normalized) do
-          payload = %{
-            "status" => "no_plan",
-            "explain" => %{
-              "mode" => "explain",
-              "status" => "no_plan",
-              "summary" => "planner returned no_plan",
-              "failure_tree" => build_failure_tree(domain),
-              "diagnostics" => scan_domain_diagnostics(domain)
-            }
-          }
-
-          {:ok, Jason.encode!(payload)}
-        else
-          _ -> {:error, "no_plan"}
-        end
-
       other ->
         other
+    end
+  end
+
+  defp merge_explain_payload(existing, diagnostics, result) when is_map(existing) do
+    existing
+    |> Map.put("diagnostics", diagnostics)
+    |> Map.put_new_lazy("status", fn -> result["status"] || "ok" end)
+  end
+
+  defp merge_explain_payload(_existing, diagnostics, result) do
+    status = result["status"] || "ok"
+
+    base = %{
+      "mode" => "fallback",
+      "status" => status,
+      "diagnostics" => diagnostics
+    }
+
+    if status == "no_plan" do
+      Map.put(base, "summary", "planner returned no_plan")
+    else
+      Map.put(base, "summary", "plan found")
+      |> Map.put("solution_tree", build_solution_tree(result))
     end
   end
 
@@ -424,57 +433,6 @@ defmodule Taskweft.MCP.Server do
 
   defp build_solution_tree(_),
     do: %{"kind" => "root", "label" => "plan_execution", "children" => []}
-
-  defp build_failure_tree(domain) when is_map(domain) do
-    tasks = Map.get(domain, "tasks", [])
-    actions = Map.keys(Map.get(domain, "actions", %{})) |> MapSet.new()
-    methods = Map.keys(Map.get(domain, "methods", %{})) |> MapSet.new()
-    goals = Map.keys(Map.get(domain, "goals", %{})) |> MapSet.new()
-
-    children =
-      tasks
-      |> Enum.with_index()
-      |> Enum.map(fn {task, index} ->
-        case task do
-          [name | args] when is_binary(name) ->
-            resolvable =
-              MapSet.member?(actions, name) or MapSet.member?(methods, name) or
-                MapSet.member?(goals, name)
-
-            %{
-              "kind" => "task",
-              "index" => index,
-              "name" => name,
-              "args" => args,
-              "resolvable" => resolvable
-            }
-
-          %{"multigoal" => mg} when is_map(mg) ->
-            %{
-              "kind" => "multigoal",
-              "index" => index,
-              "bindings" => mg
-            }
-
-          other ->
-            %{
-              "kind" => "task",
-              "index" => index,
-              "raw" => other,
-              "resolvable" => false
-            }
-        end
-      end)
-
-    %{
-      "kind" => "root",
-      "label" => "planning_failure",
-      "children" => children
-    }
-  end
-
-  defp build_failure_tree(_),
-    do: %{"kind" => "root", "label" => "planning_failure", "children" => []}
 
   defp scan_domain_diagnostics(domain) when is_map(domain) do
     eval_ops = valid_eval_ops()

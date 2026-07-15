@@ -1,7 +1,7 @@
 defmodule Taskweft.MCP.MixProject do
   use Mix.Project
 
-  @version "0.2.0-dev.1"
+  @version "0.2.0-dev.3"
 
   def project do
     [
@@ -22,7 +22,7 @@ defmodule Taskweft.MCP.MixProject do
 
   defp deps do
     [
-      {:taskweft_nif, "~> 0.2.0-dev"},
+      {:taskweft_nif, "~> 0.2.0-dev.3"},
       {:taskweft_plans, "~> 0.2.0-dev"},
       {:taskweft_mcp_client, "~> 0.2.0-dev"},
       {:ex_mcp, "~> 1.0.0-rc"},
