@@ -93,10 +93,10 @@ defmodule Taskweft.Iso8601Duration do
       {:error, _} = err ->
         err
 
-      {:ok, _whole, _milli, raw, ""} ->
+      {:ok, _whole, _milli, _had_frac, raw, ""} ->
         {:error, {:invalid_number, raw}}
 
-      {:ok, whole, milli, _raw, <<unit_c::utf8, rest::binary>>} ->
+      {:ok, whole, milli, had_frac, _raw, <<unit_c::utf8, rest::binary>>} ->
         cond do
           unit_c == ?W and (acc != [] or in_time) ->
             {:error, :mixed_basic_extended}
@@ -105,7 +105,17 @@ defmodule Taskweft.Iso8601Duration do
             {:error, :mixed_basic_extended}
 
           true ->
-            classify_component(whole, milli, unit_c, rest, acc, in_time, saw_t, last_rank)
+            classify_component(
+              whole,
+              milli,
+              had_frac,
+              unit_c,
+              rest,
+              acc,
+              in_time,
+              saw_t,
+              last_rank
+            )
         end
     end
   end
@@ -113,7 +123,7 @@ defmodule Taskweft.Iso8601Duration do
   defp parse_components(<<c::utf8, _::binary>>, _acc, _in_time, _saw_t, _last_rank, _frac),
     do: {:error, {:unexpected_token, <<c::utf8>>}}
 
-  defp classify_component(whole, milli, unit_c, rest, acc, in_time, saw_t, last_rank) do
+  defp classify_component(whole, milli, had_frac, unit_c, rest, acc, in_time, saw_t, last_rank) do
     case lookup_unit(unit_c, in_time) do
       {:ok, unit} ->
         rank = unit_rank(unit)
@@ -122,7 +132,7 @@ defmodule Taskweft.Iso8601Duration do
           {:error, {:non_canonical_order, unit}}
         else
           comp = %{unit: unit, whole: whole, frac_milli: milli}
-          parse_components(rest, [comp | acc], in_time, saw_t, rank, milli != 0)
+          parse_components(rest, [comp | acc], in_time, saw_t, rank, had_frac)
         end
 
       {:cross, unit} ->
@@ -168,13 +178,13 @@ defmodule Taskweft.Iso8601Duration do
       <<?., d2::utf8, _::binary>> = full when d2 in ?0..?9 ->
         <<?., frac::binary>> = full
         {milli, raw_with_frac, after_frac} = take_frac(frac, 0, 0, raw <> ".")
-        {:ok, whole, milli, raw_with_frac, after_frac}
+        {:ok, whole, milli, true, raw_with_frac, after_frac}
 
       <<?., _::binary>> ->
         {:error, {:invalid_number, raw <> "."}}
 
       _ ->
-        {:ok, whole, 0, raw, after_int}
+        {:ok, whole, 0, false, raw, after_int}
     end
   end
 
