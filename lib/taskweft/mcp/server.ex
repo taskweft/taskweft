@@ -153,12 +153,7 @@ defmodule Taskweft.MCP.Server do
 
     run(fn %{domain_json: domain_json} = args, state ->
       explain = Map.get(args, :explain, false)
-
-      guarded(state, fn ->
-        with {:ok, normalized} <- validate_domain(domain_json) do
-          plan_with_optional_explain(normalized, explain)
-        end
-      end)
+      guarded(state, fn -> plan_with_optional_explain(domain_json, explain) end)
     end)
   end
 
@@ -176,15 +171,23 @@ defmodule Taskweft.MCP.Server do
       fail_step = Map.get(args, :fail_step, -1)
 
       guarded(state, fn ->
-        with {:ok, normalized} <- validate_domain(domain_json),
-             {:ok, steps} <- decode_plan(plan_json),
+        with {:ok, steps} <- decode_plan(plan_json),
              :ok <- validate_fail_step(steps, fail_step) do
           # tw_replan wants a bare top-level step array; the {"plan":[...]} envelope
           # that `plan` returns silently parses to 0 steps (#43), so re-encode the
-          # normalized step list before handing it to the NIF.
-          Taskweft.replan(normalized, Jason.encode!(steps), fail_step)
+          # step list before handing it to the NIF.
+          Taskweft.replan(domain_json, Jason.encode!(steps), fail_step)
         end
       end)
+    end)
+  end
+
+  tool "validate",
+       "Validate a JSON-LD domain/problem document without planning. Returns the normalized document JSON on success, or a validation error. plan/replan do not validate — call this first if you want to check a document's shape without also attempting to solve it." do
+    param(:domain_json, :string, required: true)
+
+    run(fn %{domain_json: domain_json}, state ->
+      guarded(state, fn -> validate_domain(domain_json) end)
     end)
   end
 
@@ -374,12 +377,12 @@ defmodule Taskweft.MCP.Server do
 
   defp decode_plan(_), do: {:error, "plan_json must be a JSON string"}
 
-  defp plan_with_optional_explain(normalized, false), do: Taskweft.plan(normalized)
+  defp plan_with_optional_explain(domain_json, false), do: Taskweft.plan(domain_json)
 
-  defp plan_with_optional_explain(normalized, true) do
-    case Taskweft.plan_explain(normalized) do
+  defp plan_with_optional_explain(domain_json, true) do
+    case Taskweft.plan_explain(domain_json) do
       {:ok, result_json} ->
-        with {:ok, domain} <- Jason.decode(normalized),
+        with {:ok, domain} <- Jason.decode(domain_json),
              {:ok, result} <- Jason.decode(result_json) do
           diagnostics = scan_domain_diagnostics(domain)
           explain = merge_explain_payload(result["explain"], diagnostics, result)
