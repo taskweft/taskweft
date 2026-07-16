@@ -5,15 +5,17 @@ defmodule Taskweft.MCP.Server do
   Start with `mix taskweft.mcp` (stdio) or `mix taskweft.mcp --http`.
 
   The planner model is **RECTGTN** — Relationship-Enabled Capability-Temporal
-  Goal-Task-Network. A domain's `tasks` hold three task kinds: `TwCall` call
-  arrays (`'E'`/`'T'`), `TwGoal` goal bindings (`'G'`, the top-level `goals`
-  key), and `TwMultiGoal` `{"multigoal": …}` entries (`'N'`). Two more layers
-  apply on top of any task kind: capability guards (`'R'`/`'C'`, top-level
-  `capabilities`) and per-action temporal duration (`'T'`, an action's
-  `duration` field). The `plan` tool's `domain_json` description documents all
-  five with golden shapes (and rejected shapes for goals/multigoal —
-  capabilities/duration are plan-time, not load-time, so nothing there is
-  structurally validated).
+  Goal-Task-Network. A domain's `todo_list` (GTPyHOP's own term for this
+  heterogeneous list) holds three task kinds: `TwCall` call arrays
+  (`'E'`/`'T'`), `TwGoal` `{"goal": [...]}` entries (`'G'`, conjunctive
+  bindings satisfied via the domain's `goals` methods map — a separate,
+  unrelated top-level key), and `TwMultiGoal` `{"multigoal": …}` entries
+  (`'N'`). Two more layers apply on top of any task kind: capability guards
+  (`'R'`/`'C'`, top-level `capabilities`) and per-action temporal duration
+  (`'T'`, an action's `duration` field). The `plan` tool's `domain_json`
+  description documents all five with golden shapes (and rejected shapes for
+  goal/multigoal — capabilities/duration are plan-time, not load-time, so
+  nothing there is structurally validated).
 
   ## Tools
 
@@ -81,14 +83,15 @@ defmodule Taskweft.MCP.Server do
         "goals": {<var>: {"params": [<p>...], "alternatives": [...]}}   # optional goal methods (TwGoal 'G')
         "capabilities": {"entities": {<entity>: [<cap>...]}, "actions": {<name>: [<cap>...]}}
                                                              # optional ReBAC capability guards (RECTGTN 'R'/'C')
-        "tasks": [<task>, ...]
-      Each <task> is ONE of three RECTGTN task kinds:
+        "todo_list": [<task>, ...]
+      "todo_list" is GTPyHOP's own term for this exact heterogeneous list
+      (find_plan(state, todo_list)). Each <task> is ONE of three RECTGTN task kinds:
         1. TwCall  ('E'/'T') — a call-array [<name>, <arg>...]; a bare string is NOT a call.
-        2. TwGoal  ('G')     — top-level "goals": [{"pointer": "/var/key", "eq": <desired>}, ...]
+        2. TwGoal  ('G')     — a todo_list entry {"goal": [{"pointer": "/var/key", "eq": <desired>}, ...]}
                                (a conjunctive goal solved by the "goals" goal-methods above).
-        3. TwMultiGoal ('N') — a task object {"multigoal": {<var>: {<key>: <desired>, ...}, ...}};
+        3. TwMultiGoal ('N') — a todo_list entry {"multigoal": {<var>: {<key>: <desired>, ...}, ...}};
                                the planner backjumps over which binding to satisfy first.
-      A "tasks" list may mix call-arrays and {"multigoal": ...} objects freely.
+      A "todo_list" may mix call-arrays, {"goal": [...]}, and {"multigoal": ...} objects freely.
       Effects use "pointer/set" (the legacy "set" op is rejected). {curly} names in
       paths/values are substituted from action/method params.
 
@@ -99,7 +102,7 @@ defmodule Taskweft.MCP.Server do
           capability the action requires — an agent lacking one silently can't take that path, so the
           planner tries the next alternative (or reports no plan if none qualify). This is a plan-time
           guard, not a load-time check: Loader.validate does not structurally validate "capabilities"
-          (unlike "goals"/"tasks" below) — a malformed shape is simply ignored by the NIF's loader.
+          (unlike "goals"/"todo_list" below) — a malformed shape is simply ignored by the NIF's loader.
         * Temporal duration ('T') — a per-action "duration": "<ISO8601>" field (e.g. "PT5M", "PT1H30M").
           Every `plan` response already includes a "temporal" block (STN consistency + per-step
           start/end) computed from these durations; actions without a "duration" default to "PT0S".
@@ -119,7 +122,7 @@ defmodule Taskweft.MCP.Server do
          "methods":{"move":{"params":["agent","to"],
                              "alternatives":[{"name":"fly","subtasks":[["a_fly","{agent}","{to}"]]},
                                              {"name":"walk","subtasks":[["a_walk","{agent}","{to}"]]}]}},
-         "tasks":[["move","drone_1","city"]]}
+         "todo_list":[["move","drone_1","city"]]}
       See also the bundled taskweft://domains/entity_capabilities.jsonld (capabilities) and
       taskweft://domains/temporal_travel.jsonld (duration-only) resources.
 
@@ -130,18 +133,18 @@ defmodule Taskweft.MCP.Server do
          "actions":{"do_a":{"params":[],"body":[{"pointer/set":"/done/a","value":true}]},
                     "do_b":{"params":[],"body":[{"pointer/set":"/done/b","value":true}]}},
          "methods":{"top":{"params":[],"alternatives":[{"name":"seq","subtasks":[["do_a"],["do_b"]]}]}},
-         "tasks":[["top"]]}
+         "todo_list":[["top"]]}
       Minimal TwGoal problem (state + desired bindings, methods come from the domain):
         {"@type":"domain:Problem","name":"switch_goal",
          "variables":[{"name":"switch","init":{"x":false}}],
-         "goals":[{"pointer":"/switch/x","eq":true}]}
+         "todo_list":[{"goal":[{"pointer":"/switch/x","eq":true}]}]}
       Minimal TwMultiGoal problem:
         {"@type":"domain:Problem","name":"switch_multigoal",
          "variables":[{"name":"switch","init":{"x":false,"y":false}}],
-         "tasks":[{"multigoal":{"switch":{"x":true,"y":true}}}]}
-      Rejected shapes (Loader.validate): a "goals" binding missing "pointer"/"eq";
-      an empty {"multigoal":{}} or a multigoal var bound to a non-object; an object
-      task that is not a {"multigoal": ...} entry.
+         "todo_list":[{"multigoal":{"switch":{"x":true,"y":true}}}]}
+      Rejected shapes (Loader.validate): a "goal" binding missing "pointer"/"eq", or an empty
+      "goal" list; an empty {"multigoal":{}} or a multigoal var bound to a non-object; an object
+      task that is neither a {"multigoal": ...} nor a {"goal": ...} entry.
       """
     )
 
@@ -280,9 +283,9 @@ defmodule Taskweft.MCP.Server do
 
       shape =
         if kind == "multigoal" do
-          ~s(a task object `{"multigoal": {<var>: {<key>: <desired>, ...}}}` in "tasks")
+          ~s(a `{"multigoal": {<var>: {<key>: <desired>, ...}}}` entry in "todo_list")
         else
-          ~s(a top-level `"goals": [{"pointer": "/var/key", "eq": <desired>}, ...]` binding array)
+          ~s(a `{"goal": [{"pointer": "/var/key", "eq": <desired>}, ...]}` entry in "todo_list")
         end
 
       message(
