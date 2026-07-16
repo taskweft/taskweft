@@ -5,8 +5,15 @@
 
 **RECTGTN** stands for **R**elationship-**E**nabled **C**apability-**T**emporal
 **G**oal-**T**ask-**N**etwork — the HTN (Hierarchical Task Network) planning
-model exposed over MCP by the `plan` and `replan` tools. This page defines the
-JSON-LD shapes a domain may use.
+model exposed over MCP by the `plan` and `replan` tools.
+
+`priv/schemas/rectgtn_domain.schema.json` is the authoritative shape — every
+top-level key a document may use, exhaustively, enforced by
+`Taskweft.JSONLD.Loader.validate/2` with `additionalProperties: false`. This
+page is prose and rationale on top of it, not a restatement: `@context`,
+`@type`, `name` (required), `description`, `version`, `source`, `enums`,
+`variables`, `actions`, `methods`, `goals`, `capabilities`, `todo_list` — see
+the schema for each one's exact shape.
 
 ## The three task kinds
 
