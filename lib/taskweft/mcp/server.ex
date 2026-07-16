@@ -42,15 +42,19 @@ defmodule Taskweft.MCP.Server do
 
   use ExMCP.Server.Handler
 
-  # ex_mcp's DSL captures `use` opts as raw unevaluated AST (server_info/2 in
-  # ex_mcp's dsl.ex just calls to_string/1 directly on whatever we pass) — a
-  # module attribute or function call here does NOT get evaluated, only a
-  # plain literal survives. So this one has to be a hand-written literal,
-  # kept in sync with mix.exs's @version by convention. This is exactly how
-  # it drifted to a stale "0.1.0" before — the other version reference below
-  # (a genuine runtime function, no macro constraint) instead derives itself
-  # from Application.spec/2 so it can never desync again.
-  use ExMCP.Server.DSL, name: "taskweft", version: "0.2.0-dev.6"
+  # No `version:` here — ex_mcp's DSL requires a compile-time literal for it
+  # (confirmed empirically: __using__'s opts get wrapped in Macro.escape/1,
+  # which freezes ANY nested `@attr` read or function call as inert AST data
+  # rather than letting it compile as ordinary code, so there's no way to
+  # derive this from mix.exs's own @version without patching ex_mcp). A
+  # hand-copied literal here silently drifted from mix.exs twice already
+  # (taskweft/mcp#23, #24) — rather than keep chasing ways to sync two
+  # numbers that don't need to be synced, just don't advertise one; ex_mcp
+  # falls back to its own default ("1.0.0") for `serverInfo.version`, which
+  # callers should treat as informational only, not as this package's actual
+  # release version (that's `Application.spec(:taskweft_mcp, :vsn)`, used
+  # correctly elsewhere in this file, e.g. the taskweft://meta resource).
+  use ExMCP.Server.DSL, name: "taskweft"
 
   # JSON-LD validation lives in the parent app (`Taskweft.JSONLD.Loader`) so this
   # dep stays circular-free; standalone runs skip validation.
@@ -610,7 +614,13 @@ defmodule Taskweft.MCP.Server do
       "math/ge",
       "math/and",
       "math/or",
-      "math/not"
+      "math/not",
+      # Capability requirements now compile to this op (taskweft/nif's
+      # eval_node, tw_loader.hpp) rather than a bespoke guard mechanism, so
+      # it's also directly authorable in an ordinary method/goal-method
+      # "check" clause: {"eval": {"type": "rebac/check", "rel": <string-or-
+      # relation-expr>, "subject": <expr>, "object": <expr>}}.
+      "rebac/check"
     ]
   end
 
