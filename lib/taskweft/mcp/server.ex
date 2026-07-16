@@ -11,10 +11,11 @@ defmodule Taskweft.MCP.Server do
   bindings satisfied via a goal method — an ordinary `methods` entry named
   after the state var it targets; there's no separate `goals` key), and
   `TwMultiGoal` `{"multigoal": …}` entries (`'N'`). Two more layers apply on
-  top of any task kind: capability guards
-  (`'R'`/`'C'`, top-level `capabilities`) and per-action temporal duration
-  (`'T'`, an action's `duration` field). The `plan` tool's `domain_json`
-  description documents all five with golden shapes (and rejected shapes for
+  top of any task kind: capability guards (`'R'`/`'C'`, top-level
+  `capabilities` graph data plus a hand-written `rebac/check` eval step per
+  action — no compiled sugar) and per-action temporal duration (`'T'`, an
+  action's `duration` field). The `plan` tool's `domain_json` description
+  documents all five with golden shapes (and rejected shapes for
   goal/multigoal — capabilities/duration are plan-time, not load-time, so
   nothing there is structurally validated).
 
@@ -75,16 +76,26 @@ defmodule Taskweft.MCP.Server do
       parsed JSON object directly, not a JSON-encoded string. Shape:
         "@context": {"vsekai": "https://v-sekai.org/", "domain": "vsekai:planning/domain/"}
         "@type": "domain:Definition", "name": <string>
-        "variables": [{"name": <v>, "init": {<key>: <value>, ...}}]   # state; NOT a flat "state" object
+        "variables": [{"name": <v>, "type": <t>, "init": {<key>: <value>, ...}}]   # state; NOT a flat "state" object
         "actions": {<name>: {"params": [<p>...],
                              "body": [{"pointer/set": "/path/{p}", "value": <v>}]}}   # effects; NOT pre/eff
         "methods": {<name>: {"params": [<p>...],
                              "alternatives": [{"name": <alt>,
                                                "check": [{"pointer": "/path", "eq": <v>}],   # optional guard
                                                "subtasks": [[<call>, <arg>...], ...]}]}}
-        "capabilities": {"entities": {<entity>: [<cap>...]}, "actions": {<name>: [<cap>...]}}
-                                                             # optional ReBAC capability guards (RECTGTN 'R'/'C')
         "todo_list": [<task>, ...]
+      Every variable's "type" is mandatory — glTF Interactivity's own value-type
+      vocabulary (KHR_interactivity socket/custom-variable types) verbatim, no
+      RECTGTN extensions: "bool", "int", "float", "float2"/"float3"/"float4",
+      "float2x2"/"float3x3"/"float4x4", "ref". There is no "string" type — what
+      looks like free text (a block's position "table"/"hand", an agent name)
+      is an opaque identity reference compared for equality, i.e. "ref". There
+      is no "enum" type either — a symbolic/discrete/named-class concept is
+      capability/ReBAC membership (below), not a separate lookup-table
+      mechanism. "init" shape depends on "type": either a bare value (a
+      single-valued fluent) or an object mapping instance keys to values of
+      that type (a per-entity fluent, e.g. {"drone_1": ..., "drone_2": ...} —
+      the common case).
       "todo_list" is GTPyHOP's own term for this exact heterogeneous list
       (find_plan(state, todo_list)). Each <task> is ONE of three RECTGTN task kinds:
         1. TwCall  ('E'/'T') — a call-array [<name>, <arg>...]; a bare string is NOT a call.
@@ -100,12 +111,16 @@ defmodule Taskweft.MCP.Server do
 
       Two orthogonal RECTGTN features layer on top of any task kind above:
         * Capabilities ('R'/'C') — top-level "capabilities": {"entities": {<entity>: [<cap>,...]},
-          "actions": {<action>: [<cap>,...]}}. Each action's alternative is a ReBAC HAS_CAPABILITY
-          guard: the planner only applies an action to an agent (its first param) that holds every
-          capability the action requires — an agent lacking one silently can't take that path, so the
-          planner tries the next alternative (or reports no plan if none qualify). This is a plan-time
-          guard, not a load-time check: Loader.validate does not structurally validate "capabilities"
-          (unlike "todo_list" below) — a malformed shape is simply ignored by the NIF's loader.
+          "graph": {"edges": [...], "definitions": {}}}. A dedicated key, not a variable:
+          structured/relational data gets its own namespaced slot, matching glTF Interactivity's
+          own convention for extension data that isn't a scalar/vector value socket. A capability
+          requirement is a hand-written {"eval": {"type": "rebac/check", "rel": <relation>,
+          "subject": <ref>, "object": <cap>}} guard step written directly into an action's own
+          body, the same mechanism every other action precondition uses. An agent lacking a
+          required capability fails that guard, so the planner tries the next alternative (or
+          reports no plan if none qualify). This is a plan-time guard, not a load-time check:
+          Loader.validate does not structurally validate the "actions" requirement shape (there
+          isn't one — it's an ordinary eval step) though it does validate "capabilities" itself.
         * Temporal duration ('T') — a per-action "duration": "<ISO8601>" field (e.g. "PT5M", "PT1H30M").
           Every `plan` response already includes a "temporal" block (STN consistency + per-step
           start/end) computed from these durations; actions without a "duration" default to "PT0S".
@@ -116,12 +131,14 @@ defmodule Taskweft.MCP.Server do
       "fly" alternative over "walk", which human_1 lacks):
         {"@context":{"vsekai":"https://v-sekai.org/","domain":"vsekai:planning/domain/"},
          "@type":"domain:Definition","name":"capability_demo",
-         "variables":[{"name":"loc","init":{"drone_1":"base"}}],
-         "capabilities":{"entities":{"drone_1":["fly"]},"actions":{"a_fly":["fly"],"a_walk":["walk"]}},
+         "variables":[{"name":"loc","type":"ref","init":{"drone_1":"base"}}],
+         "capabilities":{"entities":{"drone_1":["fly"]}},
          "actions":{"a_fly":{"duration":"PT5M","params":["agent","to"],
-                              "body":[{"pointer/set":"/loc/{agent}","value":"{to}"}]},
+                              "body":[{"eval":{"type":"rebac/check","rel":"HAS_CAPABILITY","subject":"{agent}","object":"fly"}},
+                                      {"pointer/set":"/loc/{agent}","value":"{to}"}]},
                     "a_walk":{"duration":"PT30M","params":["agent","to"],
-                              "body":[{"pointer/set":"/loc/{agent}","value":"{to}"}]}},
+                              "body":[{"eval":{"type":"rebac/check","rel":"HAS_CAPABILITY","subject":"{agent}","object":"walk"}},
+                                      {"pointer/set":"/loc/{agent}","value":"{to}"}]}},
          "methods":{"move":{"params":["agent","to"],
                              "alternatives":[{"name":"fly","subtasks":[["a_fly","{agent}","{to}"]]},
                                              {"name":"walk","subtasks":[["a_walk","{agent}","{to}"]]}]}},
@@ -132,18 +149,18 @@ defmodule Taskweft.MCP.Server do
       Minimal TwCall example:
         {"@context":{"vsekai":"https://v-sekai.org/","domain":"vsekai:planning/domain/"},
          "@type":"domain:Definition","name":"demo",
-         "variables":[{"name":"done","init":{"a":false,"b":false}}],
+         "variables":[{"name":"done","type":"bool","init":{"a":false,"b":false}}],
          "actions":{"do_a":{"params":[],"body":[{"pointer/set":"/done/a","value":true}]},
                     "do_b":{"params":[],"body":[{"pointer/set":"/done/b","value":true}]}},
          "methods":{"top":{"params":[],"alternatives":[{"name":"seq","subtasks":[["do_a"],["do_b"]]}]}},
          "todo_list":[["top"]]}
       Minimal TwGoal problem (state + desired bindings, methods come from the domain):
         {"@type":"domain:Problem","name":"switch_goal",
-         "variables":[{"name":"switch","init":{"x":false}}],
+         "variables":[{"name":"switch","type":"bool","init":{"x":false}}],
          "todo_list":[{"goal":[{"pointer":"/switch/x","eq":true}]}]}
       Minimal TwMultiGoal problem:
         {"@type":"domain:Problem","name":"switch_multigoal",
-         "variables":[{"name":"switch","init":{"x":false,"y":false}}],
+         "variables":[{"name":"switch","type":"bool","init":{"x":false,"y":false}}],
          "todo_list":[{"multigoal":{"switch":{"x":true,"y":true}}}]}
       Rejected shapes (Loader.validate): a "goal" binding missing "pointer"/"eq", or an empty
       "goal" list; an empty {"multigoal":{}} or a multigoal var bound to a non-object; an object
@@ -317,14 +334,15 @@ defmodule Taskweft.MCP.Server do
 
       message(
         "Read taskweft://domains/#{domain}. If it has a top-level \"capabilities\" object " <>
-          "({\"entities\": {<entity>: [<cap>,...]}, \"actions\": {<action>: [<cap>,...]}}), " <>
-          "note which capabilities each entity holds — the planner only lets an agent take an " <>
-          "action alternative it holds every required capability for (RECTGTN 'R'/'C'; this is a " <>
-          "plan-time guard, not a load-time validation). If any action carries a \"duration\" " <>
-          "(ISO 8601, e.g. \"PT5M\") that's RECTGTN 'T' — the `plan` tool's response already " <>
-          "includes a \"temporal\" block (STN consistency + per-step start/end) computed from " <>
-          "those durations, with no extra call needed. Then call the `plan` tool with the domain " <>
-          "JSON as-is (add a \"tasks\" entry if the bundled file doesn't already have one).",
+          "({\"entities\": {<entity>: [<cap>,...]}, \"graph\": {...}}), note which capabilities " <>
+          "each entity holds — a capability guard is a hand-written {\"eval\": {\"type\": " <>
+          "\"rebac/check\", \"rel\": <relation>, \"subject\": <ref>, \"object\": <cap>}} step in " <>
+          "an action's own body (RECTGTN 'R'/'C'; this is a plan-time guard, not a load-time " <>
+          "validation). If any action carries a \"duration\" (ISO 8601, e.g. \"PT5M\") that's " <>
+          "RECTGTN 'T' — the `plan` tool's response already includes a \"temporal\" block (STN " <>
+          "consistency + per-step start/end) computed from those durations, with no extra call " <>
+          "needed. Then call the `plan` tool with the domain JSON as-is (add a \"todo_list\" " <>
+          "entry if the bundled file doesn't already have one).",
         state
       )
     end)
@@ -554,53 +572,7 @@ defmodule Taskweft.MCP.Server do
         end)
       end)
 
-    capability_issues =
-      case get_in(domain, ["capabilities", "actions"]) do
-        cap_actions when is_map(cap_actions) ->
-          Enum.flat_map(cap_actions, fn {action_name, _caps} ->
-            case Map.get(actions, action_name) do
-              %{"params" => [first | _]} when is_binary(first) ->
-                if first == "agent" do
-                  []
-                else
-                  [
-                    %{
-                      "severity" => "warning",
-                      "type" => "capability_actor_param_not_first_agent",
-                      "action" => action_name,
-                      "first_param" => first
-                    }
-                  ]
-                end
-
-              %{"params" => []} ->
-                [
-                  %{
-                    "severity" => "warning",
-                    "type" => "capability_actor_param_missing",
-                    "action" => action_name
-                  }
-                ]
-
-              nil ->
-                [
-                  %{
-                    "severity" => "warning",
-                    "type" => "capability_action_missing_definition",
-                    "action" => action_name
-                  }
-                ]
-
-              _ ->
-                []
-            end
-          end)
-
-        _ ->
-          []
-      end
-
-    unknown_subtasks ++ check_issues ++ capability_issues
+    unknown_subtasks ++ check_issues
   end
 
   defp scan_domain_diagnostics(_), do: []
