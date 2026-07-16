@@ -66,11 +66,12 @@ defmodule Taskweft.MCP.Server do
 
   tool "plan",
        "Run the IPyHOP-style HTN planner over a JSON-LD domain. Returns the plan as JSON." do
-    param(:domain_json, :string,
+    param(:domain_json, :object,
       required: true,
       description: """
-      A JSON-LD HTN domain for the RECTGTN planner (Relationship-Enabled
-      Capability-Temporal Goal-Task-Network; pointer-based IPyHOP). Shape:
+      A JSON-LD HTN domain object for the RECTGTN planner (Relationship-Enabled
+      Capability-Temporal Goal-Task-Network; pointer-based IPyHOP) — pass the
+      parsed JSON object directly, not a JSON-encoded string. Shape:
         "@context": {"vsekai": "https://v-sekai.org/", "domain": "vsekai:planning/domain/"}
         "@type": "domain:Definition", "name": <string>
         "variables": [{"name": <v>, "init": {<key>: <value>, ...}}]   # state; NOT a flat "state" object
@@ -156,20 +157,17 @@ defmodule Taskweft.MCP.Server do
 
     run(fn args, state ->
       guarded(state, fn ->
-        domain_json = Map.fetch!(args, :domain_json)
+        domain = Map.fetch!(args, :domain_json)
         explain = Map.get(args, :explain, false)
-
-        with :ok <- ensure_json(domain_json) do
-          plan_with_optional_explain(domain_json, explain)
-        end
+        plan_with_optional_explain(Jason.encode!(domain), explain)
       end)
     end)
   end
 
   tool "replan",
        "Replan after a step failure. Pass the original domain, the previously-returned plan, and the index of the failed step (-1 for full replan)." do
-    param(:domain_json, :string, required: true)
-    param(:plan_json, :string, required: true)
+    param(:domain_json, :object, required: true)
+    param(:plan_json, :object, required: true)
 
     param(:fail_step, :integer,
       required: false,
@@ -178,17 +176,16 @@ defmodule Taskweft.MCP.Server do
 
     run(fn args, state ->
       guarded(state, fn ->
-        domain_json = Map.fetch!(args, :domain_json)
-        plan_json = Map.fetch!(args, :plan_json)
+        domain = Map.fetch!(args, :domain_json)
+        plan_arg = Map.fetch!(args, :plan_json)
         fail_step = Map.get(args, :fail_step, -1)
 
-        with :ok <- ensure_json(domain_json),
-             {:ok, steps} <- decode_plan(plan_json),
+        with {:ok, steps} <- decode_plan(plan_arg),
              :ok <- validate_fail_step(steps, fail_step) do
           # tw_replan wants a bare top-level step array; the {"plan":[...]} envelope
           # that `plan` returns silently parses to 0 steps (#43), so re-encode the
           # step list before handing it to the NIF.
-          Taskweft.replan(domain_json, Jason.encode!(steps), fail_step)
+          Taskweft.replan(Jason.encode!(domain), Jason.encode!(steps), fail_step)
         end
       end)
     end)
@@ -196,12 +193,12 @@ defmodule Taskweft.MCP.Server do
 
   tool "validate",
        "Validate a JSON-LD domain/problem document without planning. Returns the normalized document JSON on success, or a validation error. plan/replan do not validate — call this first if you want to check a document's shape without also attempting to solve it." do
-    param(:domain_json, :string, required: true)
+    param(:domain_json, :object, required: true)
 
     run(fn args, state ->
       guarded(state, fn ->
-        domain_json = Map.fetch!(args, :domain_json)
-        validate_domain(domain_json)
+        domain = Map.fetch!(args, :domain_json)
+        validate_domain(Jason.encode!(domain))
       end)
     end)
   end
@@ -376,40 +373,15 @@ defmodule Taskweft.MCP.Server do
   # returns, and normalize to a bare step list — the NIF's tw_replan wants a
   # top-level array and silently yields 0 steps from an envelope (#43). Reject
   # anything else with a structured error instead of silently passing it through.
-  defp decode_plan(plan_json) when is_binary(plan_json) do
-    case Jason.decode(plan_json) do
-      {:ok, list} when is_list(list) ->
-        {:ok, list}
+  # `plan_json` arrives as an already-decoded term (a list or a map) — the
+  # transport parsed the JSON, so there's no string here to be malformed.
+  defp decode_plan(list) when is_list(list), do: {:ok, list}
+  defp decode_plan(%{"plan" => list}) when is_list(list), do: {:ok, list}
 
-      {:ok, %{"plan" => list}} when is_list(list) ->
-        {:ok, list}
-
-      {:ok, other} ->
-        {:error,
-         "plan_json must be an array of step arrays or a {\"plan\": [...]} envelope, got #{inspect(other)}"}
-
-      {:error, _} ->
-        {:error, "plan_json is not valid JSON"}
-    end
-  end
-
-  defp decode_plan(_), do: {:error, "plan_json must be a JSON string"}
-
-  # `plan`/`replan` intentionally skip RECTGTN structural validation (that's
-  # `validate`'s job) and hand domain_json straight to the NIF. But the NIF's
-  # own minimal JSON parser (tw_loader.hpp) doesn't reject malformed JSON —
-  # it silently parses a truncated/garbled document into an empty domain,
-  # so a syntax error in domain_json comes back as a bogus {"plan":[],
-  # "status":"ok"} instead of an error. This is a syntax check only (same
-  # class of guard decode_plan/1 already does for plan_json), not a shape
-  # check — a syntactically valid document with the wrong RECTGTN shape
-  # still passes through untouched, per "assume it'll work".
-  defp ensure_json(json) when is_binary(json) do
-    case Jason.decode(json) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, "domain_json is not valid JSON: #{Exception.message(reason)}"}
-    end
-  end
+  defp decode_plan(other),
+    do:
+      {:error,
+       "plan_json must be an array of step arrays or a {\"plan\": [...]} envelope, got #{inspect(other)}"}
 
   defp plan_with_optional_explain(domain_json, false), do: Taskweft.plan(domain_json)
 
