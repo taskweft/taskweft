@@ -350,23 +350,13 @@ defmodule Taskweft.JSONLD.LoaderTest do
     end
   end
 
-  # A domain-style "goals" map (goal-method definitions, keyed by state var)
-  # and a problem-style "goals" array (desired bindings) share one JSON key
-  # and can never coexist in a single merged document — so Taskweft.CLI's
-  # merge/2 (deliberately) never touches "goals" at all, meaning a problem's
-  # actual goal was previously silently dropped whenever the paired domain
-  # had its own default "todo_list" (every bundled *_goal.jsonld fixture "plans"
-  # today only because its domain's canned tasks happen to already match the
-  # intended goal — proven by swapping in a genuinely different goal and
-  # getting a byte-identical plan back).
-  #
-  # The fix isn't a smarter merge: a goal-method (TwGoalMethodFn) IS a
-  # TwMethodFn (tw_domain.hpp) — invoked as (state, [key, desired]), which is
-  # mechanically identical to an ordinary method call [goal_var, key,
-  # desired]. Domain-style "goals" methods now also register under
-  # task_methods, so a problem expresses its goal as an ordinary "todo_list"
-  # entry (["pos", "a", "table"]) instead of the special "goals" key — merged
-  # via the already-correct merge_tasks path, no "goals" merge needed at all.
+  # A goal-method (TwGoalMethodFn) IS a TwMethodFn (tw_domain.hpp) — invoked
+  # as (state, [key, desired]), mechanically identical to an ordinary method
+  # call [goal_var, key, desired]. There's no separate "goals" key at all: a
+  # goal-satisfying method is just an ordinary "methods" entry named after
+  # the state var it targets, so a problem expresses its goal as an ordinary
+  # "todo_list" entry (["pos", "a", "table"]) — merged via the
+  # already-correct merge_tasks path.
   describe "goal-methods are directly callable as ordinary tasks" do
     setup do
       {:ok, domain: read_json(Path.join([@plans, "domains", "blocks_world.jsonld"]))}
