@@ -23,7 +23,7 @@ defmodule Taskweft.JSONLD.Loader do
 
   The NIF receives a compact JSON string where:
   - `@context` is a flat map of prefix → IRI (no `@import`, no arrays).
-  - Planning keys (`"actions"`, `"variables"`, `"methods"`, `"goals"`) are
+  - Planning keys (`"actions"`, `"variables"`, `"methods"`, `"todo_list"`) are
     plain strings not defined in `@context` — the loader preserves them as-is.
   - `@type` and `@id` are present but ignored by the C++ planner; this loader
     therefore validates `@type` on the Elixir side before the NIF call.

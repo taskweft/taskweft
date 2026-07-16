@@ -12,8 +12,8 @@ top-level key a document may use, exhaustively, enforced by
 `Taskweft.JSONLD.Loader.validate/2` with `additionalProperties: false`. This
 page is prose and rationale on top of it, not a restatement: `@context`,
 `@type`, `name` (required), `description`, `version`, `source`, `enums`,
-`variables`, `actions`, `methods`, `goals`, `capabilities`, `todo_list` — see
-the schema for each one's exact shape.
+`variables`, `actions`, `methods`, `capabilities`, `todo_list` — see the
+schema for each one's exact shape.
 
 ## The three task kinds
 
@@ -47,8 +47,17 @@ Effects use `pointer/set`; guards use `{"eval": {"type": "math/<op>", …}}`.
 ## `TwGoal` — goals
 
 A conjunction of desired `(pointer, value)` bindings, as a `todo_list` entry —
-satisfied by goal methods, a domain-level `goals` map (a different, unrelated
-key: method *definitions*, not a task):
+satisfied by a *goal method*, which is not a distinct concept: it's an
+ordinary `methods` entry named after the state var it targets. There's no
+separate `goals` key — a goal method (`TwGoalMethodFn`) is mechanically
+identical to an ordinary method, invoked as `(state, [key, desired])` the
+same way any method is invoked as `(state, args)`:
+
+```json
+{"@type": "domain:Definition", "name": "blocks",
+ "methods": {"pos": {"params": ["block", "dest"],
+                     "alternatives": [{"name": "stack_it", "subtasks": [["stack", "block", "dest"]]}]}}}
+```
 
 ```json
 {"@type": "domain:Problem", "name": "switch_goal",
@@ -56,17 +65,8 @@ key: method *definitions*, not a task):
  "todo_list": [{"goal": [{"pointer": "/switch/x", "eq": true}]}]}
 ```
 
-```json
-{"@type": "domain:Definition", "name": "blocks",
- "goals": {"pos": {"params": ["block", "dest"],
-                   "alternatives": [{"name": "stack_it", "subtasks": [["stack", "block", "dest"]]}]}}}
-```
-
-Since a goal method (`TwGoalMethodFn`) is mechanically identical to an
-ordinary method — invoked as `(state, [key, desired])` vs. `(state, args)` —
-every domain-style `goals` entry also registers as an ordinary method, so a
-problem may instead just call it directly as a `TwCall`:
-`"todo_list": [["pos", "a", "table"]]`.
+Because it's an ordinary method, a problem may instead just call it directly
+as a `TwCall`: `"todo_list": [["pos", "a", "table"]]`.
 
 ## `TwMultiGoal` — multigoals
 

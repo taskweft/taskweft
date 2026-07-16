@@ -74,11 +74,6 @@
         },
         "graph": { "$ref": "#/$defs/rebac_graph" }
       }
-    },
-    "goals": {
-      "type": "object",
-      "description": "Domain-style goal-method definitions keyed by state var name — a different, unrelated concept from the 'goal' todo_list task item. A goal method IS an ordinary method (TwGoalMethodFn is TwMethodFn), so it gets the same shape validation.",
-      "additionalProperties": { "$ref": "#/$defs/method" }
     }
   },
   "$defs": {
