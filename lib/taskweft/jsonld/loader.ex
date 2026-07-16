@@ -37,14 +37,6 @@ defmodule Taskweft.JSONLD.Loader do
 
   alias Taskweft.JSONLD.Context
 
-  @valid_types [
-    "domain:Definition",
-    "domain:MetaDomain",
-    "domain:Problem",
-    "udon:Vocabulary",
-    "udon:VocabularyModule"
-  ]
-
   @doc """
   Load a JSON-LD domain file, resolve all `@context` references, validate,
   and return a compact JSON string ready for the C++ NIF.
@@ -76,24 +68,19 @@ defmodule Taskweft.JSONLD.Loader do
   @doc """
   Validate that a decoded JSON-LD document is a well-formed planning domain.
 
-  Runs in order: `@type`, `name`, top-level field shapes, goal/multigoal
-  shapes, capability shapes, action/method call arity, action durations,
-  variable substitution references. The first failure is returned; subsequent
-  checks rely on the shape established by earlier ones (e.g. arity assumes
-  `actions` is a map).
+  Structural shape rules are enforced by a single JSON Schema
+  (`priv/schemas/rectgtn_domain.schema.json`) — one declarative source of
+  truth. The remaining checks are cross-referencing rules a document-shape
+  schema can't express: action/method call arity, `{param}` substitution
+  references, and ISO 8601 duration grammar (its own dedicated,
+  property-tested parser).
   """
   @spec validate(map(), map()) :: :ok | {:error, String.t()}
   def validate(doc, _ctx) when is_map(doc) do
-    with :ok <- check_type(doc["@type"]),
-         :ok <- check_name(doc["name"]),
-         :ok <- check_shape(doc),
-         :ok <- check_goals(doc),
-         :ok <- check_multigoal_tasks(doc),
-         :ok <- check_capabilities(doc),
+    with :ok <- check_json_schema(doc),
          :ok <- check_arity(doc),
          :ok <- check_action_durations(doc),
-         :ok <- check_var_refs(doc),
-         :ok <- check_no_legacy_steps(doc) do
+         :ok <- check_var_refs(doc) do
       :ok
     end
   end
@@ -101,237 +88,47 @@ defmodule Taskweft.JSONLD.Loader do
   def validate(other, _ctx),
     do: {:error, "expected JSON-LD object, got #{inspect(other)}"}
 
-  defp check_type(type) when type in @valid_types, do: :ok
+  # A function, not a module attribute: :code.priv_dir/1 must resolve against
+  # the running release's actual code path, not wherever `mix compile`
+  # happened to run — a `@schema_path` module attribute would bake in
+  # whatever that resolved to at compile time, the exact class of bug
+  # (build-stage-only path baked into a release) already found and fixed in
+  # taskweft/mcp's plans_root this session.
+  defp schema_path,
+    do: :code.priv_dir(:taskweft) |> Path.join("schemas/rectgtn_domain.schema.json")
 
-  defp check_type(type),
-    do: {:error, "expected @type in #{inspect(@valid_types)}, got #{inspect(type)}"}
-
-  defp check_name(name) when is_binary(name), do: :ok
-  defp check_name(_), do: {:error, ~s(domain document must have a string "name" field)}
-
-  # Top-level field shapes — only checked if the field is present, since
-  # vocabulary-style domains may legitimately omit actions/methods/tasks.
-  defp check_shape(doc) do
-    with :ok <- check_field(doc, "actions", &is_map/1, "object"),
-         :ok <- check_field(doc, "variables", &is_list/1, "array"),
-         :ok <- check_field(doc, "methods", &is_map/1, "object"),
-         :ok <- check_field(doc, "tasks", &is_list/1, "array") do
-      :ok
-    end
-  end
-
-  defp check_field(doc, key, predicate, expected_label) do
-    case Map.fetch(doc, key) do
-      :error ->
-        :ok
-
-      {:ok, value} ->
-        if predicate.(value),
-          do: :ok,
-          else: {:error, "expected #{key} to be #{expected_label}, got #{json_type(value)}"}
-    end
-  end
-
-  # `goals` (RECTGTN 'T') has two shapes the NIF accepts:
-  #   * a domain-style **object** keyed by state var name — goal *methods*,
-  #     validated structurally like `methods` (nothing fixed to assert here);
-  #   * a problem-style **array** of `{"pointer": "/var/key", "eq": desired}`
-  #     bindings that the loader folds into one conjunctive `TwGoal` task.
-  # Only the array form has a fixed binding shape, so that is what we check.
-  defp check_goals(doc) do
-    case Map.get(doc, "goals") do
-      nil -> :ok
-      goals when is_map(goals) -> :ok
-      goals when is_list(goals) -> check_goal_bindings(goals)
-      other -> {:error, "expected goals to be object or array, got #{json_type(other)}"}
-    end
-  end
-
-  defp check_goal_bindings(bindings) do
-    bindings
-    |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {binding, i}, _ ->
-      case check_goal_binding(binding, i) do
-        :ok -> {:cont, :ok}
-        err -> {:halt, err}
-      end
-    end)
-  end
-
-  defp check_goal_binding(%{"pointer" => p} = b, i) when is_binary(p) do
-    if Map.has_key?(b, "eq"),
-      do: :ok,
-      else: {:error, ~s(goals[#{i}]: binding must have an "eq" field)}
-  end
-
-  defp check_goal_binding(%{"pointer" => _}, i),
-    do: {:error, ~s(goals[#{i}]: "pointer" must be a string)}
-
-  defp check_goal_binding(b, i) when is_map(b),
-    do: {:error, ~s(goals[#{i}]: binding must have a "pointer" field)}
-
-  defp check_goal_binding(other, i),
-    do: {:error, "goals[#{i}]: expected object, got #{json_type(other)}"}
-
-  # A `tasks` entry is either a `[name, args...]` call (checked by check_arity)
-  # or a multigoal object (RECTGTN 'N') `{"multigoal": {var: {key: desired,
-  # ...}, ...}}`. Validate the object form's shape here; anything else that is
-  # neither a call array nor a multigoal object is rejected.
-  defp check_multigoal_tasks(doc) do
-    doc
-    |> Map.get("tasks", [])
-    |> List.wrap()
-    |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {task, i}, _ ->
-      case check_task_shape(task, i) do
-        :ok -> {:cont, :ok}
-        err -> {:halt, err}
-      end
-    end)
-  end
-
-  defp check_task_shape(task, _i) when is_list(task), do: :ok
-
-  defp check_task_shape(%{"multigoal" => mg}, i) when is_map(mg),
-    do: check_multigoal_bindings(mg, i)
-
-  defp check_task_shape(%{"multigoal" => other}, i),
-    do: {:error, "tasks[#{i}]: \"multigoal\" must be an object, got #{json_type(other)}"}
-
-  defp check_task_shape(task, i) when is_map(task),
-    do: {:error, "tasks[#{i}]: object task must be a {\"multigoal\": {...}} entry"}
-
-  defp check_task_shape(other, i),
-    do: {:error, "tasks[#{i}]: expected call array or multigoal object, got #{json_type(other)}"}
-
-  defp check_multigoal_bindings(mg, i) when map_size(mg) == 0,
-    do: {:error, "tasks[#{i}]: multigoal must bind at least one variable"}
-
-  defp check_multigoal_bindings(mg, i) do
-    Enum.reduce_while(mg, :ok, fn {var, kv}, _ ->
-      cond do
-        not is_map(kv) ->
-          {:halt, {:error, "tasks[#{i}]: multigoal[#{var}] must be an object of key→desired"}}
-
-        map_size(kv) == 0 ->
-          {:halt, {:error, "tasks[#{i}]: multigoal[#{var}] must bind at least one key"}}
-
-        true ->
-          {:cont, :ok}
-      end
-    end)
-  end
-
-  # Top-level `capabilities` (RECTGTN 'R'/'C') gates which entity may take
-  # which action, evaluated against a ReBAC relation-expression graph
-  # (ADR 0004, taskweft#96) rather than precomputed booleans — not itself
-  # checked against `variables`/`actions` names (an entity or action naming a
-  # var/action that doesn't exist is a planner-side no-op, not a load-time
-  # error). Shape:
-  #   - `entities`: optional object of name -> array of capability strings
-  #     (compiles to direct HAS_CAPABILITY edges).
-  #   - `actions`: optional object of name -> array of requirements, each
-  #     either a bare capability string (sugar for a direct HAS_CAPABILITY
-  #     check) or `{"rel": <relation-expression>, "object": <string>}` for
-  #     the general case.
-  #   - `graph`: optional explicit relationship graph, same wire format as
-  #     `Taskweft.ReBAC`'s graph_json (`{"edges": [...], "definitions": {}}`),
-  #     merged with the edges `entities` compiles.
-  defp check_capabilities(doc) do
-    case Map.get(doc, "capabilities") do
-      nil -> :ok
-      caps when is_map(caps) -> check_capabilities_shape(caps)
-      other -> {:error, "expected capabilities to be an object, got #{json_type(other)}"}
-    end
-  end
-
-  defp check_capabilities_shape(caps) do
-    with :ok <- check_capability_group(caps, "entities", &check_capability_list/1),
-         :ok <- check_capability_group(caps, "actions", &check_action_requirement_list/1),
-         :ok <- check_rebac_graph(Map.get(caps, "graph")) do
-      :ok
-    end
-  end
-
-  defp check_capability_group(caps, key, list_checker) do
-    case Map.get(caps, key) do
+  defp json_schema do
+    case :persistent_term.get({__MODULE__, :schema}, nil) do
       nil ->
+        schema =
+          schema_path()
+          |> File.read!()
+          |> Jason.decode!()
+          |> ExJsonSchema.Schema.resolve()
+
+        :persistent_term.put({__MODULE__, :schema}, schema)
+        schema
+
+      schema ->
+        schema
+    end
+  end
+
+  defp check_json_schema(doc) do
+    case ExJsonSchema.Validator.validate(json_schema(), doc) do
+      :ok ->
         :ok
 
-      group when is_map(group) ->
-        Enum.reduce_while(group, :ok, fn {name, list}, _ ->
-          case list_checker.(list) do
-            :ok -> {:cont, :ok}
-            :error -> {:halt, {:error, "capabilities.#{key}.#{name}: #{list_checker_error(key)}"}}
-          end
-        end)
+      {:error, errors} ->
+        # Default error_formatter (Error.StringFormatter) yields {message, path}.
+        msg =
+          errors
+          |> Enum.map(fn {e, p} -> "#{p}: #{e}" end)
+          |> Enum.join("; ")
 
-      other ->
-        {:error, "expected capabilities.#{key} to be an object, got #{json_type(other)}"}
+        {:error, "schema validation failed: #{msg}"}
     end
   end
-
-  defp list_checker_error("actions"),
-    do: "each requirement must be a capability string or {\"rel\": expr, \"object\": string}"
-
-  defp list_checker_error(_), do: "must be an array of strings"
-
-  defp check_capability_list(caps) when is_list(caps) do
-    if Enum.all?(caps, &is_binary/1), do: :ok, else: :error
-  end
-
-  defp check_capability_list(_), do: :error
-
-  defp check_action_requirement_list(reqs) when is_list(reqs) do
-    if Enum.all?(reqs, &valid_action_requirement?/1), do: :ok, else: :error
-  end
-
-  defp check_action_requirement_list(_), do: :error
-
-  defp valid_action_requirement?(req) when is_binary(req), do: true
-
-  defp valid_action_requirement?(%{"rel" => rel, "object" => object}) when is_binary(object),
-    do: is_map(rel)
-
-  defp valid_action_requirement?(_), do: false
-
-  defp check_rebac_graph(nil), do: :ok
-
-  defp check_rebac_graph(graph) when is_map(graph) do
-    with :ok <- check_rebac_edges(Map.get(graph, "edges")),
-         :ok <- check_rebac_definitions(Map.get(graph, "definitions")) do
-      :ok
-    end
-  end
-
-  defp check_rebac_graph(other),
-    do: {:error, "expected capabilities.graph to be an object, got #{json_type(other)}"}
-
-  defp check_rebac_edges(nil), do: :ok
-
-  defp check_rebac_edges(edges) when is_list(edges) do
-    if Enum.all?(edges, &valid_rebac_edge?/1) do
-      :ok
-    else
-      {:error,
-       ~s(capabilities.graph.edges: each entry must be {"subject": string, "object": string, "rel": string})}
-    end
-  end
-
-  defp check_rebac_edges(other),
-    do: {:error, "expected capabilities.graph.edges to be an array, got #{json_type(other)}"}
-
-  defp valid_rebac_edge?(%{"subject" => s, "object" => o, "rel" => r}),
-    do: is_binary(s) and is_binary(o) and is_binary(r)
-
-  defp valid_rebac_edge?(_), do: false
-
-  defp check_rebac_definitions(nil), do: :ok
-  defp check_rebac_definitions(defs) when is_map(defs), do: :ok
-
-  defp check_rebac_definitions(other),
-    do:
-      {:error, "expected capabilities.graph.definitions to be an object, got #{json_type(other)}"}
 
   # Per-action `duration` (RECTGTN 'T') feeds the temporal/STN block; unlike
   # capabilities this has a concrete grammar (ISO 8601), so a malformed value
@@ -366,20 +163,11 @@ defmodule Taskweft.JSONLD.Loader do
         end
 
       other ->
-        {:error, "action #{name}: duration must be a string, got #{json_type(other)}"}
+        {:error, "action #{name}: duration must be a string, got #{inspect(other)}"}
     end
   end
 
   defp check_action_duration(_name, _defn), do: :ok
-
-  defp json_type(v) when is_map(v), do: "object"
-  defp json_type(v) when is_list(v), do: "array"
-  defp json_type(v) when is_binary(v), do: "string"
-  defp json_type(v) when is_integer(v), do: "integer"
-  defp json_type(v) when is_float(v), do: "number"
-  defp json_type(v) when is_boolean(v), do: "boolean"
-  defp json_type(nil), do: "null"
-  defp json_type(_), do: "unknown"
 
   # Each call in `tasks` and in method `subtasks` is `[name, arg1, arg2, ...]`.
   # When `name` is a known action or method, `length(args)` must match the
@@ -519,90 +307,6 @@ defmodule Taskweft.JSONLD.Loader do
   end
 
   defp scan_refs(_, _, _), do: :ok
-
-  # Reject the legacy `set` / `check` step shorthand and the legacy
-  # `{"pointer": "/x", "<op>": v}` method-alternative check clause shape.
-  # Both were removed in taskweft-nif (issue #50 phase 3); the action body
-  # now accepts only `{"eval": <node>}` and `{"pointer/set": "/x", ...}`,
-  # and method check arrays accept only `{"eval": <node>}` clauses.
-  defp check_no_legacy_steps(doc) do
-    actions = Map.get(doc, "actions", %{})
-    methods = Map.get(doc, "methods", %{})
-
-    with :ok <- check_action_bodies(actions) do
-      check_method_alts(methods)
-    end
-  end
-
-  defp check_action_bodies(actions) when is_map(actions) do
-    Enum.reduce_while(actions, :ok, fn {name, defn}, _ ->
-      body = Map.get(defn, "body", []) || []
-
-      case Enum.reduce_while(body, :ok, fn step, _ ->
-             case legacy_body_step(step) do
-               nil -> {:cont, :ok}
-               legacy_key -> {:halt, {:error, legacy_body_msg(name, legacy_key)}}
-             end
-           end) do
-        :ok -> {:cont, :ok}
-        err -> {:halt, err}
-      end
-    end)
-  end
-
-  defp check_action_bodies(_), do: :ok
-
-  defp legacy_body_step(%{"set" => _}), do: "set"
-  defp legacy_body_step(%{"check" => v}) when is_binary(v), do: "check"
-  defp legacy_body_step(_), do: nil
-
-  defp legacy_body_msg(action_name, key) do
-    replacement =
-      case key do
-        "set" ->
-          ~s({"pointer/set": "/path", "value": ...})
-
-        "check" ->
-          ~s({"eval": {"type": "math/eq", "a": {"type": "pointer/get", "pointer": "/path"}, "b": ...}})
-      end
-
-    "action #{action_name}: legacy `#{key}` step is no longer supported (taskweft-nif #50 phase 3); use #{replacement}"
-  end
-
-  defp check_method_alts(methods) when is_map(methods) do
-    Enum.reduce_while(methods, :ok, fn {mname, mdef}, _ ->
-      alts = Map.get(mdef, "alternatives", []) || []
-
-      case Enum.reduce_while(alts, :ok, fn alt, _ ->
-             clauses = Map.get(alt, "check", []) || []
-
-             case Enum.reduce_while(clauses, :ok, fn clause, _ ->
-                    case legacy_check_clause(clause) do
-                      nil -> {:cont, :ok}
-                      _ -> {:halt, {:error, legacy_alt_check_msg(mname)}}
-                    end
-                  end) do
-               :ok -> {:cont, :ok}
-               err -> {:halt, err}
-             end
-           end) do
-        :ok -> {:cont, :ok}
-        err -> {:halt, err}
-      end
-    end)
-  end
-
-  defp check_method_alts(_), do: :ok
-
-  defp legacy_check_clause(%{"pointer" => _} = c) do
-    if Map.has_key?(c, "eval"), do: nil, else: :legacy
-  end
-
-  defp legacy_check_clause(_), do: nil
-
-  defp legacy_alt_check_msg(method_name) do
-    ~s/method #{method_name}: legacy `{"pointer": "\/x", "<op>": v}` check clause is no longer supported (taskweft-nif #50 phase 3); use {"eval": {"type": "math\/<op>", "a": {"type": "pointer\/get", "pointer": "\/x"}, "b": v}}/
-  end
 
   defp read_file(path) do
     case File.read(path) do
