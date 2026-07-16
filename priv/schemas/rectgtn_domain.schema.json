@@ -5,6 +5,7 @@
   "description": "JSON-LD shape a taskweft domain or problem document may take. See docs/rectgtn.md for the prose description this mirrors. This is the sole structural/shape validation Taskweft.JSONLD.Loader enforces — cross-referencing checks a document-shape schema can't express (call arity, {param} references, ISO 8601 duration grammar) still run separately in Elixir. 'todo_list' is GTPyHOP's term for this exact heterogeneous list (find_plan(state, todo_list)): each item is a call ['method_name', ...args], a {'multigoal': ...} conjunctive-binding backjump, or a {'goal': [...]} conjunctive-binding task.",
   "type": "object",
   "required": ["@type", "name"],
+  "additionalProperties": false,
   "properties": {
     "@context": {
       "description": "Inline map, local/remote reference (string), or array of either — resolved by Taskweft.JSONLD.Loader before this schema ever sees the document, so no further shape is enforced here."
@@ -73,6 +74,10 @@
         },
         "graph": { "$ref": "#/$defs/rebac_graph" }
       }
+    },
+    "goals": {
+      "type": "object",
+      "description": "Domain-style goal-method definitions keyed by state var name — a different, unrelated concept from the 'goal' todo_list task item. Not otherwise shape-validated here; each entry's own {params, alternatives} structure is exercised the same way an ordinary method is."
     }
   },
   "$defs": {
