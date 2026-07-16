@@ -40,27 +40,45 @@
       ],
       "body": [
         {
-          "check": "/pos/{block}",
-          "eq": "table"
+          "eval": {
+            "type": "math/eq",
+            "a": {
+              "type": "pointer/get",
+              "pointer": "/pos/{block}"
+            },
+            "b": "table"
+          }
         },
         {
-          "check": "/clear/{block}",
-          "eq": true
+          "eval": {
+            "type": "math/eq",
+            "a": {
+              "type": "pointer/get",
+              "pointer": "/clear/{block}"
+            },
+            "b": true
+          }
         },
         {
-          "check": "/holding/hand",
-          "eq": false
+          "eval": {
+            "type": "math/eq",
+            "a": {
+              "type": "pointer/get",
+              "pointer": "/holding/hand"
+            },
+            "b": false
+          }
         },
         {
-          "set": "/pos/{block}",
+          "pointer/set": "/pos/{block}",
           "value": "hand"
         },
         {
-          "set": "/clear/{block}",
+          "pointer/set": "/clear/{block}",
           "value": false
         },
         {
-          "set": "/holding/hand",
+          "pointer/set": "/holding/hand",
           "value": "{block}"
         }
       ]
@@ -77,27 +95,39 @@
       ],
       "body": [
         {
-          "check": "/clear/{block}",
-          "eq": true
+          "eval": {
+            "type": "math/eq",
+            "a": {
+              "type": "pointer/get",
+              "pointer": "/clear/{block}"
+            },
+            "b": true
+          }
         },
         {
-          "check": "/holding/hand",
-          "eq": false
+          "eval": {
+            "type": "math/eq",
+            "a": {
+              "type": "pointer/get",
+              "pointer": "/holding/hand"
+            },
+            "b": false
+          }
         },
         {
-          "set": "/pos/{block}",
+          "pointer/set": "/pos/{block}",
           "value": "hand"
         },
         {
-          "set": "/clear/{block}",
+          "pointer/set": "/clear/{block}",
           "value": false
         },
         {
-          "set": "/holding/hand",
+          "pointer/set": "/holding/hand",
           "value": "{block}"
         },
         {
-          "set": "/clear/{under}",
+          "pointer/set": "/clear/{under}",
           "value": true
         }
       ]
@@ -108,19 +138,25 @@
       ],
       "body": [
         {
-          "check": "/pos/{block}",
-          "eq": "hand"
+          "eval": {
+            "type": "math/eq",
+            "a": {
+              "type": "pointer/get",
+              "pointer": "/pos/{block}"
+            },
+            "b": "hand"
+          }
         },
         {
-          "set": "/pos/{block}",
+          "pointer/set": "/pos/{block}",
           "value": "table"
         },
         {
-          "set": "/clear/{block}",
+          "pointer/set": "/clear/{block}",
           "value": true
         },
         {
-          "set": "/holding/hand",
+          "pointer/set": "/holding/hand",
           "value": false
         }
       ]
@@ -132,27 +168,39 @@
       ],
       "body": [
         {
-          "check": "/pos/{block}",
-          "eq": "hand"
+          "eval": {
+            "type": "math/eq",
+            "a": {
+              "type": "pointer/get",
+              "pointer": "/pos/{block}"
+            },
+            "b": "hand"
+          }
         },
         {
-          "check": "/clear/{target}",
-          "eq": true
+          "eval": {
+            "type": "math/eq",
+            "a": {
+              "type": "pointer/get",
+              "pointer": "/clear/{target}"
+            },
+            "b": true
+          }
         },
         {
-          "set": "/pos/{block}",
+          "pointer/set": "/pos/{block}",
           "value": "{target}"
         },
         {
-          "set": "/clear/{block}",
+          "pointer/set": "/clear/{block}",
           "value": true
         },
         {
-          "set": "/holding/hand",
+          "pointer/set": "/holding/hand",
           "value": false
         },
         {
-          "set": "/clear/{target}",
+          "pointer/set": "/clear/{target}",
           "value": false
         }
       ]
@@ -190,8 +238,14 @@
           "name": "pickup_from_table",
           "check": [
             {
-              "pointer": "/pos/{block}",
-              "eq": "table"
+              "eval": {
+                "type": "math/eq",
+                "a": {
+                  "type": "pointer/get",
+                  "pointer": "/pos/{block}"
+                },
+                "b": "table"
+              }
             }
           ],
           "subtasks": [
@@ -222,12 +276,24 @@
           "name": "stack_on_block",
           "check": [
             {
-              "pointer": "/holding/hand",
-              "eq": "{block}"
+              "eval": {
+                "type": "math/eq",
+                "a": {
+                  "type": "pointer/get",
+                  "pointer": "/holding/hand"
+                },
+                "b": "{block}"
+              }
             },
             {
-              "pointer": "/clear/{dest}",
-              "eq": true
+              "eval": {
+                "type": "math/eq",
+                "a": {
+                  "type": "pointer/get",
+                  "pointer": "/clear/{dest}"
+                },
+                "b": true
+              }
             }
           ],
           "subtasks": [
@@ -242,8 +308,14 @@
           "name": "putdown_on_table",
           "check": [
             {
-              "pointer": "/holding/hand",
-              "eq": "{block}"
+              "eval": {
+                "type": "math/eq",
+                "a": {
+                  "type": "pointer/get",
+                  "pointer": "/holding/hand"
+                },
+                "b": "{block}"
+              }
             }
           ],
           "subtasks": [

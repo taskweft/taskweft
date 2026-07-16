@@ -42,11 +42,11 @@
       ],
       "body": [
         {
-          "set": "/loc/taxi1",
+          "pointer/set": "/loc/taxi1",
           "value": "{from_loc}"
         },
         {
-          "set": "/loc/{person}",
+          "pointer/set": "/loc/{person}",
           "value": "taxi1"
         }
       ]
@@ -58,11 +58,11 @@
       ],
       "body": [
         {
-          "set": "/loc/taxi1",
+          "pointer/set": "/loc/taxi1",
           "value": "{to_loc}"
         },
         {
-          "set": "/owe/{person}",
+          "pointer/set": "/owe/{person}",
           "value": 5.5
         }
       ]
@@ -74,11 +74,11 @@
       ],
       "body": [
         {
-          "set": "/loc/{person}",
+          "pointer/set": "/loc/{person}",
           "value": "{to_loc}"
         },
         {
-          "set": "/owe/{person}",
+          "pointer/set": "/owe/{person}",
           "value": 0.0
         }
       ]
@@ -90,7 +90,7 @@
       ],
       "body": [
         {
-          "set": "/loc/{person}",
+          "pointer/set": "/loc/{person}",
           "value": "{to_loc}"
         }
       ]
@@ -107,8 +107,14 @@
           "name": "already_there",
           "check": [
             {
-              "pointer": "/loc/{person}",
-              "eq": "{dest}"
+              "eval": {
+                "type": "math/eq",
+                "a": {
+                  "type": "pointer/get",
+                  "pointer": "/loc/{person}"
+                },
+                "b": "{dest}"
+              }
             }
           ],
           "subtasks": []
