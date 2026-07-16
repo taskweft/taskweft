@@ -109,7 +109,15 @@ defmodule Taskweft.JSONLD.Loader do
   # own root (/app) — confirmed by reproducing the real Containerfile build.
   # __DIR__ is always this source file's actual on-disk location, so it's
   # correct regardless of which project is doing the compiling.
-  @schema_path Path.join([__DIR__, "..", "..", "..", "priv", "schemas", "rectgtn_domain.schema.json"])
+  @schema_path Path.join([
+                 __DIR__,
+                 "..",
+                 "..",
+                 "..",
+                 "priv",
+                 "schemas",
+                 "rectgtn_domain.schema.json"
+               ])
   @external_resource @schema_path
   @schema @schema_path
           |> File.read!()
