@@ -73,7 +73,11 @@ defmodule Taskweft.MCP.Server do
       description: """
       A JSON-LD HTN domain object for the RECTGTN planner (Relationship-Enabled
       Capability-Temporal Goal-Task-Network; pointer-based IPyHOP) — pass the
-      parsed JSON object directly, not a JSON-encoded string. Shape:
+      parsed JSON object directly, not a JSON-encoded string. The two required
+      keys are LITERALLY "@type" and "name" WITH the "@" — this is JSON-LD, not
+      a generic "type"/"context" object; "type" and "context" (no "@") are NOT
+      recognized keys and the document is rejected as if they were absent.
+      Shape:
         "@context": {"vsekai": "https://v-sekai.org/", "domain": "vsekai:planning/domain/"}
         "@type": "domain:Definition", "name": <string>
         "variables": [{"name": <v>, "type": <t>, "init": {<key>: <value>, ...}}]   # state; NOT a flat "state" object
@@ -199,12 +203,15 @@ defmodule Taskweft.MCP.Server do
         plan_arg = Map.fetch!(args, :plan_json)
         fail_step = Map.get(args, :fail_step, -1)
 
+        domain_json = Jason.encode!(domain)
+
         with {:ok, steps} <- decode_plan(plan_arg),
-             :ok <- validate_fail_step(steps, fail_step) do
+             :ok <- validate_fail_step(steps, fail_step),
+             :ok <- validate_for_replan(domain_json) do
           # tw_replan wants a bare top-level step array; the {"plan":[...]} envelope
           # that `plan` returns silently parses to 0 steps (#43), so re-encode the
           # step list before handing it to the NIF.
-          Taskweft.replan(Jason.encode!(domain), Jason.encode!(steps), fail_step)
+          Taskweft.replan(domain_json, Jason.encode!(steps), fail_step)
         end
       end)
     end)
@@ -367,6 +374,16 @@ defmodule Taskweft.MCP.Server do
 
   # ---------- HELPERS ----------
 
+  # Same rationale as plan_with_optional_explain/2: surface a schema error
+  # instead of letting a malformed domain reach the NIF as a bare
+  # "failed_to_load_domain" token.
+  defp validate_for_replan(json) do
+    case validate_domain(json) do
+      {:error, _reason} = error -> error
+      _ok -> :ok
+    end
+  end
+
   defp validate_domain(json) do
     if Code.ensure_loaded?(@loader) and function_exported?(@loader, :load_string, 1) do
       apply(@loader, :load_string, [json])
@@ -404,9 +421,24 @@ defmodule Taskweft.MCP.Server do
       {:error,
        "plan_json must be an array of step arrays or a {\"plan\": [...]} envelope, got #{inspect(other)}"}
 
-  defp plan_with_optional_explain(domain_json, false), do: Taskweft.plan(domain_json)
+  # Neither `Taskweft.plan/1` nor `plan_explain/1` validate before handing the
+  # JSON to the NIF loader — a malformed domain (missing "@type", a legacy
+  # "goals"/"tasks" key, a variable missing "type", etc.) surfaces only as the
+  # opaque NIF-level "failed_to_load_domain" token, which gives a caller no
+  # way to fix their document (confirmed via adversarial testing — repeated
+  # real callers hit this and had no actionable signal). Run the same schema
+  # validation `validate` uses first, so a shape error reports precisely what
+  # is wrong instead of a bare failure string.
+  defp plan_with_optional_explain(domain_json, explain) do
+    case validate_domain(domain_json) do
+      {:error, _reason} = error -> error
+      _ok -> do_plan(domain_json, explain)
+    end
+  end
 
-  defp plan_with_optional_explain(domain_json, true) do
+  defp do_plan(domain_json, false), do: Taskweft.plan(domain_json)
+
+  defp do_plan(domain_json, true) do
     case Taskweft.plan_explain(domain_json) do
       {:ok, result_json} ->
         with {:ok, domain} <- Jason.decode(domain_json),
