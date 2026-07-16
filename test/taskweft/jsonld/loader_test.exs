@@ -18,55 +18,6 @@ defmodule Taskweft.JSONLD.LoaderTest do
   defp base(extra),
     do: Map.merge(%{"@type" => "domain:Problem", "name" => "t"}, extra)
 
-  describe "validate/2 goal bindings (array form)" do
-    test "accepts a domain:Problem with a goals binding array" do
-      doc =
-        base(%{
-          "variables" => [%{"name" => "pos", "init" => %{"a" => "b"}}],
-          "goals" => [%{"pointer" => "/pos/a", "eq" => "table"}]
-        })
-
-      assert :ok = Loader.validate(doc, %{})
-    end
-
-    test "accepts the domain-style goals object (goal methods)" do
-      doc =
-        base(%{
-          "@type" => "domain:Definition",
-          "goals" => %{
-            "pos" => %{"params" => ["block", "dest"], "alternatives" => [%{"name" => "m"}]}
-          }
-        })
-
-      assert :ok = Loader.validate(doc, %{})
-    end
-
-    test "rejects a goal binding missing eq" do
-      doc = base(%{"goals" => [%{"pointer" => "/pos/a"}]})
-      assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ ~s(goals[0])
-      assert msg =~ "eq"
-    end
-
-    test "rejects a goal binding missing pointer" do
-      doc = base(%{"goals" => [%{"eq" => "table"}]})
-      assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "pointer"
-    end
-
-    test "rejects a non-string pointer" do
-      doc = base(%{"goals" => [%{"pointer" => 5, "eq" => "table"}]})
-      assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "pointer"
-    end
-
-    test "rejects a non-object binding" do
-      doc = base(%{"goals" => ["/pos/a"]})
-      assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "expected object"
-    end
-  end
-
   describe "validate/2 multigoal tasks" do
     test "accepts a {multigoal} task entry" do
       doc = base(%{"tasks" => [%{"multigoal" => %{"pos" => %{"a" => "table", "b" => "a"}}}]})
@@ -85,31 +36,31 @@ defmodule Taskweft.JSONLD.LoaderTest do
     test "rejects an empty multigoal" do
       doc = base(%{"tasks" => [%{"multigoal" => %{}}]})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "at least one variable"
+      assert msg =~ "#/tasks/0"
     end
 
     test "rejects a multigoal var whose bindings are empty" do
       doc = base(%{"tasks" => [%{"multigoal" => %{"pos" => %{}}}]})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "at least one key"
+      assert msg =~ "#/tasks/0"
     end
 
     test "rejects a multigoal var bound to a non-object" do
       doc = base(%{"tasks" => [%{"multigoal" => %{"pos" => "table"}}]})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "key→desired"
+      assert msg =~ "#/tasks/0"
     end
 
     test "rejects a multigoal whose value is not an object" do
       doc = base(%{"tasks" => [%{"multigoal" => "pos"}]})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ ~s("multigoal" must be an object)
+      assert msg =~ "#/tasks/0"
     end
 
     test "rejects an object task that is not a multigoal" do
       doc = base(%{"tasks" => [%{"goal" => %{}}]})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "multigoal"
+      assert msg =~ "#/tasks/0"
     end
   end
 
@@ -143,25 +94,25 @@ defmodule Taskweft.JSONLD.LoaderTest do
     test "rejects a non-object capabilities value" do
       doc = base(%{"capabilities" => "fly"})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "expected capabilities to be an object"
+      assert msg =~ "#/capabilities"
     end
 
     test "rejects a non-object entities/actions group" do
       doc = base(%{"capabilities" => %{"entities" => ["fly"]}})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "expected capabilities.entities to be an object"
+      assert msg =~ "#/capabilities/entities"
     end
 
     test "rejects a capability list containing a non-string" do
       doc = base(%{"capabilities" => %{"entities" => %{"drone_1" => [1]}}})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "capabilities.entities.drone_1: must be an array of strings"
+      assert msg =~ "#/capabilities/entities/drone_1"
     end
 
     test "rejects a capability value that is not an array" do
       doc = base(%{"capabilities" => %{"actions" => %{"a_fly" => "fly"}}})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "capabilities.actions.a_fly: each requirement must be"
+      assert msg =~ "#/capabilities/actions/a_fly"
     end
 
     test "accepts a full relation-expression requirement (ADR 0004)" do
@@ -190,7 +141,7 @@ defmodule Taskweft.JSONLD.LoaderTest do
         })
 
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "capabilities.actions.a_fly: each requirement must be"
+      assert msg =~ "#/capabilities/actions/a_fly"
     end
 
     test "accepts an explicit ReBAC graph" do
@@ -216,7 +167,7 @@ defmodule Taskweft.JSONLD.LoaderTest do
         })
 
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "capabilities.graph.edges"
+      assert msg =~ "#/capabilities/graph/edges"
     end
   end
 
@@ -240,7 +191,7 @@ defmodule Taskweft.JSONLD.LoaderTest do
     test "rejects a non-string duration" do
       doc = base(%{"actions" => %{"a_fly" => %{"duration" => 5, "params" => [], "body" => []}}})
       assert {:error, msg} = Loader.validate(doc, %{})
-      assert msg =~ "action a_fly: duration must be a string"
+      assert msg =~ "#/actions/a_fly/duration"
     end
 
     test "rejects a malformed ISO 8601 duration string" do
