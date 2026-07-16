@@ -1,0 +1,186 @@
+{
+  "@context": {
+    "khr": "https://registry.khronos.org/glTF/extensions/2.0/KHR_interactivity/",
+    "domain": "khr:planning/domain/"
+  },
+  "@type": "domain:Definition",
+  "name": "skill_allocation",
+  "description": "Skill allocation and job assignment planning domain. Assigns service jobs to engineers, optionally training them on required skills to minimize training costs.",
+  "version": "1.0",
+  "variables": [
+    {
+      "name": "engineer_skills",
+      "type": "int",
+      "description": "Binary matrix: engineer_skills[e][s] = 1 if engineer e has skill s, 0 otherwise"
+    },
+    {
+      "name": "job_requirements",
+      "type": "int",
+      "description": "Job metadata: requirement[j] contains [skill_needed, priority, duration, location, is_overseas]"
+    },
+    {
+      "name": "allocations",
+      "type": "ref",
+      "description": "allocations[j] = engineer_id for job j, null if unassigned"
+    },
+    {
+      "name": "new_skills",
+      "type": "int",
+      "description": "Training assignments: new_skills[e][t] = skill_id if engineer e learns skill at slot t, 0 if unused"
+    },
+    {
+      "name": "training_budget",
+      "type": "int",
+      "description": "Total training slots used across all engineers"
+    },
+    {
+      "name": "jobs_assigned",
+      "type": "int",
+      "description": "Number of jobs successfully assigned"
+    }
+  ],
+  "actions": {
+    "assign_job": {
+      "params": ["job_id", "engineer_id", "skill_to_train"],
+      "description": "Assign a job to an engineer, optionally training them on a required skill first",
+      "body": [
+        {
+          "eval": {
+            "type": "math/ge",
+            "a": {"type": "pointer/get", "pointer": "/jobs_assigned"},
+            "b": 0
+          },
+          "description": "Guard: job assignment is valid in current state"
+        },
+        {
+          "pointer/set": "/allocations/{job_id}",
+          "value": "{engineer_id}",
+          "description": "Set job allocation"
+        },
+        {
+          "pointer/set": "/jobs_assigned",
+          "value": {
+            "type": "math/add",
+            "a": {"type": "pointer/get", "pointer": "/jobs_assigned"},
+            "b": 1
+          },
+          "description": "Increment assigned job counter"
+        }
+      ]
+    },
+    "train_engineer": {
+      "params": ["engineer_id", "skill_id"],
+      "description": "Train an engineer on a new skill",
+      "body": [
+        {
+          "eval": {
+            "type": "math/lt",
+            "a": {"type": "pointer/get", "pointer": "/training_budget"},
+            "b": 10
+          },
+          "description": "Guard: training budget not exceeded"
+        },
+        {
+          "pointer/set": "/engineer_skills/{engineer_id}/{skill_id}",
+          "value": 1,
+          "description": "Grant engineer the skill"
+        },
+        {
+          "pointer/set": "/training_budget",
+          "value": {
+            "type": "math/add",
+            "a": {"type": "pointer/get", "pointer": "/training_budget"},
+            "b": 1
+          },
+          "description": "Increment training budget used"
+        }
+      ]
+    }
+  },
+  "methods": {
+    "allocate_all_jobs": {
+      "params": [],
+      "description": "Main task: allocate all unassigned jobs to suitable engineers",
+      "alternatives": [
+        {
+          "name": "allocate_one_then_rest",
+          "description": "Allocate one job, then recursively allocate remaining jobs",
+          "subtasks": [
+            ["allocate_next_job"],
+            ["allocate_all_jobs"]
+          ]
+        },
+        {
+          "name": "all_jobs_done",
+          "description": "All jobs have been allocated (base case)",
+          "check": [
+            {
+              "eval": {
+                "type": "math/ge",
+                "a": {"type": "pointer/get", "pointer": "/jobs_assigned"},
+                "b": 0
+              }
+            }
+          ],
+          "subtasks": []
+        }
+      ]
+    },
+    "allocate_next_job": {
+      "params": [],
+      "description": "Find and allocate the next unassigned job",
+      "alternatives": [
+        {
+          "name": "assign_to_qualified_engineer",
+          "description": "Assign job to an engineer who already has the required skill",
+          "subtasks": [
+            ["find_qualified_engineer"],
+            ["do_assign_job"]
+          ]
+        },
+        {
+          "name": "train_and_assign",
+          "description": "Train an engineer on a skill, then assign the job",
+          "subtasks": [
+            ["train_engineer_for_job"],
+            ["do_assign_job"]
+          ]
+        }
+      ]
+    },
+    "find_qualified_engineer": {
+      "params": [],
+      "description": "Find an engineer qualified for the next unassigned job",
+      "alternatives": [
+        {
+          "name": "qualified_found",
+          "subtasks": []
+        }
+      ]
+    },
+    "train_engineer_for_job": {
+      "params": [],
+      "description": "Train an engineer on the skill needed for the next unassigned job",
+      "alternatives": [
+        {
+          "name": "train_and_ready",
+          "subtasks": []
+        }
+      ]
+    },
+    "do_assign_job": {
+      "params": [],
+      "description": "Perform the actual job assignment",
+      "alternatives": [
+        {
+          "name": "job_assigned",
+          "subtasks": []
+        }
+      ]
+    }
+  },
+  "capabilities": {
+    "edges": [],
+    "definitions": {}
+  }
+}
