@@ -298,6 +298,25 @@ defmodule Taskweft.JSONLD.LoaderTest do
       assert msg =~ "escaped/double-encoded"
       assert msg =~ "raw JSON text"
     end
+
+    test "adds an actionable hint when a resource URI is passed instead of JSON content" do
+      assert {:error, msg} =
+               Loader.load_string("taskweft://domains/entity_capabilities.jsonld")
+
+      assert msg =~ "invalid JSON"
+      assert msg =~ "looks like a URI"
+      assert msg =~ "resources/read"
+    end
+
+    test "adds a line/column snippet hint for a generic syntax error" do
+      # Stray "]" right after "actions" closes — no matching "[".
+      json = ~s({"@type":"domain:Definition","name":"demo","actions":{}]})
+
+      assert {:error, msg} = Loader.load_string(json)
+      assert msg =~ "invalid JSON"
+      assert msg =~ "at line 1, column"
+      assert msg =~ "^"
+    end
   end
 
   describe "bundled fixtures round-trip through the loader" do
