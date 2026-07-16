@@ -52,8 +52,6 @@ defmodule Taskweft.MCP.Server do
   # from Application.spec/2 so it can never desync again.
   use ExMCP.Server.DSL, name: "taskweft", version: "0.2.0-dev.4"
 
-  @plans_root Path.join(:code.priv_dir(:taskweft_plans) |> to_string(), "plans") |> Path.expand()
-
   # JSON-LD validation lives in the parent app (`Taskweft.JSONLD.Loader`) so this
   # dep stays circular-free; standalone runs skip validation.
   @loader Module.concat(["Taskweft", "JSONLD", "Loader"])
@@ -623,13 +621,28 @@ defmodule Taskweft.MCP.Server do
   defp tuple_result({:error, reason}, state), do: {:error, inspect(reason), state}
 
   defp read_jsonld("taskweft://" <> rest = uri, state) do
-    case File.read(Path.join(@plans_root, rest)) do
+    case File.read(Path.join(plans_root(), rest)) do
       {:ok, content} -> {:ok, %{uri: uri, text: content, mimeType: "application/ld+json"}, state}
       {:error, _} -> {:error, "unknown resource: #{uri}", state}
     end
   end
 
   defp read_jsonld(uri, state), do: {:error, "unknown resource: #{uri}", state}
+
+  # A function, not a module attribute: `:code.priv_dir/1` must resolve
+  # against the *running* release's actual code path. A `@plans_root` module
+  # attribute is evaluated once at `mix compile` time and baked into the
+  # bytecode as a literal — fine for a plain `mix release`, but the hosted
+  # Containerfile runs `mix compile`/`mix release` in a build stage
+  # (`/app/deploy/_build/...`) and only copies the *assembled release* into
+  # the runtime image at a different absolute path (`/app/lib/taskweft_plans-
+  # <version>/priv`). The compile-time-baked path pointed at a directory that
+  # never exists in the runtime image, so every `taskweft://domains/...` /
+  # `taskweft://problems/...` resource read failed in production while
+  # working fine under plain `mix run` (single-stage, same filesystem).
+  defp plans_root do
+    Path.join(:code.priv_dir(:taskweft_plans) |> to_string(), "plans") |> Path.expand()
+  end
 
   # A single user text message — the render-handler shape.
   defp message(text, state) do
