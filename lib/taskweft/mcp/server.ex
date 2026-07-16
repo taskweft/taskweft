@@ -151,9 +151,12 @@ defmodule Taskweft.MCP.Server do
         "When true, include an explain tree for successful plans and return structured no_plan diagnostics instead of a bare failure token."
     )
 
-    run(fn %{domain_json: domain_json} = args, state ->
-      explain = Map.get(args, :explain, false)
-      guarded(state, fn -> plan_with_optional_explain(domain_json, explain) end)
+    run(fn args, state ->
+      guarded(state, fn ->
+        domain_json = Map.fetch!(args, :domain_json)
+        explain = Map.get(args, :explain, false)
+        plan_with_optional_explain(domain_json, explain)
+      end)
     end)
   end
 
@@ -167,10 +170,12 @@ defmodule Taskweft.MCP.Server do
       description: "Index of the failed step; -1 for a full replan."
     )
 
-    run(fn %{domain_json: domain_json, plan_json: plan_json} = args, state ->
-      fail_step = Map.get(args, :fail_step, -1)
-
+    run(fn args, state ->
       guarded(state, fn ->
+        domain_json = Map.fetch!(args, :domain_json)
+        plan_json = Map.fetch!(args, :plan_json)
+        fail_step = Map.get(args, :fail_step, -1)
+
         with {:ok, steps} <- decode_plan(plan_json),
              :ok <- validate_fail_step(steps, fail_step) do
           # tw_replan wants a bare top-level step array; the {"plan":[...]} envelope
@@ -186,8 +191,11 @@ defmodule Taskweft.MCP.Server do
        "Validate a JSON-LD domain/problem document without planning. Returns the normalized document JSON on success, or a validation error. plan/replan do not validate — call this first if you want to check a document's shape without also attempting to solve it." do
     param(:domain_json, :string, required: true)
 
-    run(fn %{domain_json: domain_json}, state ->
-      guarded(state, fn -> validate_domain(domain_json) end)
+    run(fn args, state ->
+      guarded(state, fn ->
+        domain_json = Map.fetch!(args, :domain_json)
+        validate_domain(domain_json)
+      end)
     end)
   end
 
