@@ -9,5 +9,6 @@ deploy/deploy/
 deploy/README.md
 lean/
 cli/
-priv/
+priv/*.so
+priv/*.dll
 burrito_out/
