@@ -161,7 +161,11 @@ defmodule Taskweft.JSONLD.LoaderTest do
 
     test "rejects a malformed ReBAC graph edge" do
       doc =
-        base(%{"capabilities" => %{"graph" => %{"edges" => [%{"subject" => "team", "object" => "fly"}]}}})
+        base(%{
+          "capabilities" => %{
+            "graph" => %{"edges" => [%{"subject" => "team", "object" => "fly"}]}
+          }
+        })
 
       assert {:error, msg} = Loader.validate(doc, %{})
       assert msg =~ "#/capabilities/graph/edges"

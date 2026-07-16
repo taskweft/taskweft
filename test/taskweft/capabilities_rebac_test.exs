@@ -29,7 +29,9 @@ defmodule Taskweft.CapabilitiesReBACTest do
   end
 
   defp rebac_check_step(rel, subject, object) do
-    %{"eval" => %{"type" => "rebac/check", "rel" => rel, "subject" => subject, "object" => object}}
+    %{
+      "eval" => %{"type" => "rebac/check", "rel" => rel, "subject" => subject, "object" => object}
+    }
   end
 
   describe "backward compatibility: flat entities shape" do
