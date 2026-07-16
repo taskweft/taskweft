@@ -617,21 +617,62 @@ defmodule Taskweft.JSONLD.Loader do
         {:ok, value}
 
       {:error, %Jason.DecodeError{} = e} ->
-        {:error, "invalid JSON: #{Exception.message(e)}#{decode_hint(json)}"}
+        {:error, "invalid JSON: #{Exception.message(e)}#{decode_hint(json, e)}"}
     end
   end
 
-  defp decode_hint(json) when is_binary(json) do
+  # Escaped/double-encoded and URI-shaped inputs get a specific, targeted
+  # hint. Anything else falls back to a generic line/column + snippet, since
+  # a bare byte offset is unusable on a multi-hundred-line domain document.
+  defp decode_hint(json, e) when is_binary(json) do
     trimmed = String.trim_leading(json)
 
-    if String.starts_with?(trimmed, "\\") do
-      ". input appears to be escaped/double-encoded; send raw JSON text starting with '{' (do not pre-escape quotes or braces)"
-    else
-      ""
+    cond do
+      String.starts_with?(trimmed, "\\") ->
+        ". input appears to be escaped/double-encoded; send raw JSON text starting with '{' (do not pre-escape quotes or braces)"
+
+      uri_scheme?(trimmed) ->
+        ". input looks like a URI, not JSON content — if this came from a " <>
+          "taskweft://... resource, fetch its content first (e.g. via " <>
+          "resources/read) and pass that content as domain_json, not the URI itself"
+
+      true ->
+        location_hint(json, Map.get(e, :position))
     end
   end
 
-  defp decode_hint(_), do: ""
+  defp decode_hint(_, _), do: ""
+
+  @uri_scheme_re ~r/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//
+
+  defp uri_scheme?(trimmed), do: Regex.match?(@uri_scheme_re, trimmed)
+
+  # Jason.DecodeError only carries a raw byte offset. Render it as a
+  # 1-indexed line/column plus a short snippet with a caret, so locating the
+  # mistake doesn't require manually counting bytes.
+  defp location_hint(json, position) when is_integer(position) do
+    size = byte_size(json)
+    pos = min(max(position, 0), size)
+    prefix = binary_part(json, 0, pos)
+
+    newline_positions = :binary.matches(prefix, "\n")
+    line = length(newline_positions) + 1
+
+    column =
+      case List.last(newline_positions) do
+        nil -> pos + 1
+        {last_nl, _} -> pos - last_nl
+      end
+
+    snippet_start = max(pos - 20, 0)
+    snippet_len = min(size - snippet_start, 40)
+    snippet = binary_part(json, snippet_start, snippet_len) |> String.replace("\n", "\\n")
+    caret = String.duplicate(" ", pos - snippet_start) <> "^"
+
+    ". at line #{line}, column #{column}:\n    #{snippet}\n    #{caret}"
+  end
+
+  defp location_hint(_json, _position), do: ""
 
   defp encode(value) do
     case Jason.encode(value) do
