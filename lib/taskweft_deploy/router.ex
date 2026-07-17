@@ -54,6 +54,16 @@ defmodule TaskweftDeploy.Router do
     tools: [],
     sse_enabled: true,
     cors_enabled: true,
+    # ex_mcp's own default is `allowed_origins: []` -- deny-all, so
+    # cors_response_origin/2 never sets Access-Control-Allow-Origin for a
+    # genuinely cross-origin request even with cors_enabled: true. Origin
+    # restriction defends against ambient-credential (cookie) flows; this
+    # endpoint's actual auth boundary is an explicit macaroon Bearer token
+    # (OAuthMCPBridge.Guard.require_bearer), which a malicious page can't
+    # forge just by making a cross-origin request, so restricting Origin on
+    # top adds no real security here -- only breaks legitimate browser-based
+    # MCP clients.
+    allowed_origins: :any,
     validate_origin: false
   ]
 
@@ -139,11 +149,20 @@ defmodule TaskweftDeploy.Router do
     if public_path?(conn), do: conn, else: Guard.require_bearer(conn)
   end
 
+  # CORS preflight (OPTIONS) requests never carry an Authorization header --
+  # that's how browsers issue them, before they know whether the real
+  # request is even allowed. Gating OPTIONS behind require_bearer means
+  # every preflight gets a bare 401 with no Access-Control-Allow-* headers,
+  # so the browser blocks the real request at the CORS stage before it's
+  # ever sent -- ExMCP.HttpPlug's own cors_enabled: true (@mcp_init) never
+  # gets a chance to answer, since mcp_guard runs before forward("/mcp", ...)
+  # in the pipeline. The actual GET/POST/DELETE to /mcp still requires a
+  # bearer token; only the preflight itself is public.
   defp public_path?(conn) do
     p = conn.request_path
 
-    p == "/" or p == "/health" or String.starts_with?(p, "/.well-known/") or
-      String.starts_with?(p, "/oauth/")
+    conn.method == "OPTIONS" or p == "/" or p == "/health" or
+      String.starts_with?(p, "/.well-known/") or String.starts_with?(p, "/oauth/")
   end
 
   # ── helpers ─────────────────────────────────────────────────────────────────
