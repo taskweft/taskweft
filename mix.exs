@@ -126,6 +126,7 @@ defmodule Taskweft.MixProject do
       {:taskweft_rebac, "~> 0.2.0-dev"},
       {:taskweft_mcp_client, "~> 0.2.0-dev"},
       {:taskweft_mcp, "~> 0.2.0-dev"},
+      {:taskweft_plans, "~> 0.3.0-dev"},
       {:ex_mcp, "~> 1.0.0-rc"},
       {:burrito, "~> 1.5"},
       {:json_ld, "~> 1.0"},
