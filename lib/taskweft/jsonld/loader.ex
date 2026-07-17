@@ -284,9 +284,28 @@ defmodule Taskweft.JSONLD.Loader do
     actions = Map.get(doc, "actions", %{})
     methods = Map.get(doc, "methods", %{})
 
-    with :ok <- check_member_refs(actions, globals, "action", &Map.get(&1, "body", [])) do
-      check_member_refs(methods, globals, "method", &method_subtasks/1)
+    with :ok <-
+           check_member_refs(actions, globals, "action", &Map.get(&1, "body", []), &bind_names/1) do
+      check_member_refs(methods, globals, "method", &method_subtasks/1, fn _defn ->
+        MapSet.new()
+      end)
     end
+  end
+
+  # An action's own `bind` entries (e.g. `{"name": "under", "pointer": "/pos/{block}"}`)
+  # introduce a body-scoped name the same way `params` does — bundled fixtures
+  # (blocks_world's a_unstack, simple_travel's a_call_taxi) reference their own
+  # bind name in `body`, so it must be in the allowed set alongside params/globals.
+  # Methods have no `bind` key at all (schema-enforced), hence no equivalent here.
+  defp bind_names(defn) do
+    defn
+    |> Map.get("bind", [])
+    |> List.wrap()
+    |> Enum.flat_map(fn
+      %{"name" => n} when is_binary(n) -> [n]
+      _ -> []
+    end)
+    |> MapSet.new()
   end
 
   defp global_var_names(doc) do
@@ -300,10 +319,10 @@ defmodule Taskweft.JSONLD.Loader do
     |> MapSet.new()
   end
 
-  defp check_member_refs(defs, globals, kind, body_fn) when is_map(defs) do
+  defp check_member_refs(defs, globals, kind, body_fn, extra_names_fn) when is_map(defs) do
     Enum.reduce_while(defs, :ok, fn {name, defn}, _ ->
       params = MapSet.new(Map.get(defn, "params", []) || [])
-      allowed = MapSet.union(params, globals)
+      allowed = params |> MapSet.union(globals) |> MapSet.union(extra_names_fn.(defn))
 
       case scan_refs(body_fn.(defn), allowed, "#{kind} #{name}") do
         :ok -> {:cont, :ok}
@@ -312,7 +331,7 @@ defmodule Taskweft.JSONLD.Loader do
     end)
   end
 
-  defp check_member_refs(_, _, _, _), do: :ok
+  defp check_member_refs(_, _, _, _, _), do: :ok
 
   defp scan_refs(s, allowed, ctx) when is_binary(s) do
     @var_re

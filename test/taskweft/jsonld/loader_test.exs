@@ -206,6 +206,76 @@ defmodule Taskweft.JSONLD.LoaderTest do
     end
   end
 
+  describe "validate/2 action bind (RECTGTN action-scoped binding)" do
+    # Reproduces a real bug found via live MCP testing: the bundled
+    # simple_travel.jsonld domain's a_call_taxi action was rejected by the
+    # `plan`/`validate` MCP tools with "undeclared variable {here}", even
+    # though {here} is declared via this exact "bind" entry and the schema
+    # explicitly supports "bind" on actions. blocks_world's a_unstack has
+    # the identical shape ({under} bound, then referenced in body).
+    test "accepts a bind-declared name referenced in the action's own body" do
+      doc =
+        base(%{
+          "actions" => %{
+            "a_call_taxi" => %{
+              "params" => ["person"],
+              "bind" => [%{"name" => "here", "pointer" => "/loc/{person}"}],
+              "body" => [%{"pointer/set" => "/loc/taxi1", "value" => "{here}"}]
+            }
+          }
+        })
+
+      assert :ok = Loader.validate(doc, %{})
+    end
+
+    test "still rejects a genuinely undeclared reference alongside an unrelated bind" do
+      doc =
+        base(%{
+          "actions" => %{
+            "a_fly" => %{
+              "params" => [],
+              "bind" => [%{"name" => "here", "pointer" => "/loc/x"}],
+              "body" => [%{"pointer/set" => "/loc/x", "value" => "{nowhere}"}]
+            }
+          }
+        })
+
+      assert {:error, msg} = Loader.validate(doc, %{})
+      assert msg =~ "undeclared variable {nowhere}"
+    end
+
+    test "a bind name is action-scoped, not visible to other actions" do
+      doc =
+        base(%{
+          "actions" => %{
+            "a_call_taxi" => %{
+              "params" => ["person"],
+              "bind" => [%{"name" => "here", "pointer" => "/loc/{person}"}],
+              "body" => []
+            },
+            "a_other" => %{
+              "params" => [],
+              "body" => [%{"pointer/set" => "/x", "value" => "{here}"}]
+            }
+          }
+        })
+
+      assert {:error, msg} = Loader.validate(doc, %{})
+      assert msg =~ "action a_other: undeclared variable {here}"
+    end
+
+    test "methods have no bind key and are unaffected" do
+      doc =
+        base(%{
+          "methods" => %{
+            "top" => %{"params" => [], "alternatives" => [%{"name" => "seq", "subtasks" => []}]}
+          }
+        })
+
+      assert :ok = Loader.validate(doc, %{})
+    end
+  end
+
   describe "validate/2 @type" do
     test "accepts the new domain:Problem type" do
       assert :ok = Loader.validate(base(%{}), %{})
