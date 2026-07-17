@@ -237,7 +237,9 @@ defmodule Taskweft.JSONLD.LoaderTest do
     test "accepts a domain:Definition with methods but no actions of its own" do
       doc =
         def_base(%{
-          "methods" => %{"m1" => %{"params" => [], "alternatives" => [%{"name" => "only", "subtasks" => []}]}}
+          "methods" => %{
+            "m1" => %{"params" => [], "alternatives" => [%{"name" => "only", "subtasks" => []}]}
+          }
         })
 
       assert :ok = Loader.validate(doc, %{})
