@@ -54,24 +54,33 @@ references:
     authors:
       - family-names: Khattab
         given-names: Omar
-      - family-names: Singh
+      - family-names: Singhvi
         given-names: Arnav
       - family-names: Maheshwari
-        given-names: Keshav
+        given-names: Paridhi
+      - family-names: Zhang
+        given-names: Zhiyuan
       - family-names: Santhanam
         given-names: Keshav
-      - family-names: Sethi
-        given-names: "Sri Vardhamanan"
-      - family-names: Joglekar
-        given-names: Sumeet
+      - given-names: "Sri Vardhamanan"
+      - family-names: Haq
+        given-names: Saiful
+      - family-names: Sharma
+        given-names: Ashutosh
+      - family-names: Joshi
+        given-names: "Thomas T."
+      - family-names: Moazam
+        given-names: Hanna
+      - family-names: Miller
+        given-names: Heather
       - family-names: Zaharia
         given-names: Matei
       - family-names: Potts
         given-names: Christopher
     journal: "arXiv preprint arXiv:2310.03714"
+    doi: "10.48550/arXiv.2310.03714"
     url: "https://arxiv.org/abs/2310.03714"
     year: 2023
-    notes: "Verified — NeurIPS 2023"
 
   - type: software
     title: "llama-cpp-turboquant: High-Throughput Quantized Inference with KV Cache Management"
@@ -80,7 +89,6 @@ references:
     url: "https://github.com/TheTom/llama-cpp-turboquant"
     version: "1.2.0"
     year: 2026
-    notes: "Verified — github.com/TheTom/llama-cpp-turboquant"
 
   - type: article
     title: "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models"
@@ -93,15 +101,21 @@ references:
         given-names: Dale
       - family-names: Bosma
         given-names: Maarten
+      - family-names: Ichter
+        given-names: Brian
+      - family-names: Xia
+        given-names: Fei
       - family-names: Chi
         given-names: Ed
-      - family-names: Chen
+      - family-names: Le
         given-names: Quoc
       - family-names: Zhou
         given-names: Denny
     journal: "NeurIPS"
+    doi: "10.48550/arXiv.2201.11903"
+    url: "https://arxiv.org/abs/2201.11903"
     year: 2022
-    notes: "Verified"
+    notes: "Verified — author list and DOI corrected against arXiv:2201.11903"
 
   - type: article
     title: "Priority-Based Task Scheduling in Meta-Agentic Weaves"
@@ -153,16 +167,14 @@ references:
         given-names: Pengfei
       - family-names: Yang
         given-names: Yiming
-      - family-names: Graham
+      - family-names: Callan
         given-names: Jamie
-      - family-names: He
-        given-names: Qing
       - family-names: Neubig
         given-names: Graham
     journal: "ICML"
-    url: "https://github.com/reasoning-machines/pal"
+    doi: "10.48550/arXiv.2211.10435"
+    url: "https://arxiv.org/abs/2211.10435"
     year: 2023
-    notes: "Verified"
 
   - type: article
     title: "Recursive Language Models: Infinite Context through Recursive Task Synthesis"
@@ -200,17 +212,45 @@ references:
     authors:
       - family-names: Schick
         given-names: Timo
+      - family-names: Dwivedi-Yu
+        given-names: Jane
+      - family-names: Dessì
+        given-names: Roberto
+      - family-names: Raileanu
+        given-names: Roberta
+      - family-names: Lomeli
+        given-names: Maria
+      - family-names: Zettlemoyer
+        given-names: Luke
+      - family-names: Cancedda
+        given-names: Nicola
+      - family-names: Scialom
+        given-names: Thomas
     journal: "arXiv:2302.04761"
+    doi: "10.48550/arXiv.2302.04761"
     url: "https://arxiv.org/abs/2302.04761"
     year: 2023
-    notes: "Author list abbreviated as 'and others' in source"
+    notes: "Verified — full author list and DOI added"
 
   - type: article
     title: "DSPy Assertions: Computational Constraints for Self-Refining Language Model Pipelines"
     authors:
+      - family-names: Singhvi
+        given-names: Arnav
+      - family-names: Shetty
+        given-names: Manish
+      - family-names: Tan
+        given-names: Shangyin
+      - family-names: Potts
+        given-names: Christopher
+      - family-names: Sen
+        given-names: Koushik
+      - family-names: Zaharia
+        given-names: Matei
       - family-names: Khattab
         given-names: Omar
     journal: "arXiv:2312.13382"
+    doi: "10.48550/arXiv.2312.13382"
     url: "https://arxiv.org/abs/2312.13382"
     year: 2023
-    notes: "Verified — title corrected from an earlier incorrect draft title"
+    notes: "Verified — first author is Arnav Singhvi, not Omar Khattab; full author list and DOI added, title corrected from an earlier incorrect draft title"
