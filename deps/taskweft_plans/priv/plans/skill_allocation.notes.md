@@ -3,7 +3,7 @@
 ## Overview
 
 The **skill allocation problem** is a workforce planning optimization challenge adapted from the
-[minizinc-2025-problems](https://github.com/MiniZinc/minizinc-2025-problems) repository
+[minizinc-2025-problems](https://github.com/fire/minizinc-2025-problems) repository
 (`skill-allocation` directory). It addresses the practical challenge of assigning service jobs to
 engineers while managing skill gaps through targeted training.
 
