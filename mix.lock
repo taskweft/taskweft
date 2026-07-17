@@ -33,6 +33,5 @@
   "ranch": {:hex, :ranch, "2.2.0", "25528f82bc8d7c6152c57666ca99ec716510fe0925cb188172f41ce93117b1b0", [:make, :rebar3], [], "hexpm", "fa0b99a1780c80218a4197a59ea8d3bdae32fbff7e88527d7d8a4787eff4f8e7"},
   "taskweft_mcp_client": {:hex, :taskweft_mcp_client, "0.2.0-dev.0", "20550e224334155ec0d6a1475614891e8d3416a08a67150e92e0bf6f171978b4", [:mix], [{:ex_mcp, "~> 1.0.0-rc", [hex: :ex_mcp, repo: "hexpm", optional: false]}, {:jason, "~> 1.4", [hex: :jason, repo: "hexpm", optional: false]}], "hexpm", "d891c1719e4fdb3b8182bfc4852718d394b0df8d0d8943e2b409ae2a56d97609"},
   "taskweft_nif": {:hex, :taskweft_nif, "0.2.0-dev.3", "70862dec5e2d0d8905dace57f6cfb328967d967ff2a5ca8d0a32a23a7e7a5142", [:make, :mix], [{:elixir_make, "~> 0.9", [hex: :elixir_make, repo: "hexpm", optional: false]}, {:jason, "~> 1.4", [hex: :jason, repo: "hexpm", optional: false]}], "hexpm", "940160f21bd7ea503e7730cc530a1cb7b828544490b510a05a6c3f5c6f6d1193"},
-  "taskweft_plans": {:hex, :taskweft_plans, "0.2.0-dev.0", "781ad52ac48417f38d3e918f488a330d0b7257e3fb8cc6929a7f524926861f9a", [:mix], [], "hexpm", "686e03f55fdce1c8ef6bc53d7e5cdef1d078e2b8cc581c5bf644d1d86d6b86f3"},
   "telemetry": {:hex, :telemetry, "1.4.2", "a0cb522801dffb1c49fe6e30561badffc7b6d0e180db1300df759faa22062855", [:rebar3], [], "hexpm", "928f6495066506077862c0d1646609eed891a4326bee3126ba54b60af61febb1"},
 }

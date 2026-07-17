@@ -23,7 +23,6 @@ defmodule Taskweft.MCP.MixProject do
   defp deps do
     [
       {:taskweft_nif, "~> 0.2.0-dev.3"},
-      {:taskweft_plans, "~> 0.3.0-dev"},
       {:taskweft_mcp_client, "~> 0.2.0-dev"},
       {:ex_mcp, "~> 1.0.0-rc"},
       {:jason, "~> 1.4"},
@@ -36,7 +35,7 @@ defmodule Taskweft.MCP.MixProject do
 
   defp package do
     [
-      files: ~w(lib mix.exs LICENSE*),
+      files: ~w(lib priv mix.exs LICENSE*),
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/taskweft/mcp"}
     ]

@@ -662,13 +662,18 @@ defmodule Taskweft.MCP.Server do
   # bytecode as a literal — fine for a plain `mix release`, but the hosted
   # Containerfile runs `mix compile`/`mix release` in a build stage
   # (`/app/deploy/_build/...`) and only copies the *assembled release* into
-  # the runtime image at a different absolute path (`/app/lib/taskweft_plans-
-  # <version>/priv`). The compile-time-baked path pointed at a directory that
-  # never exists in the runtime image, so every `taskweft://domains/...` /
-  # `taskweft://problems/...` resource read failed in production while
-  # working fine under plain `mix run` (single-stage, same filesystem).
+  # the runtime image at a different absolute path. A compile-time-baked path
+  # can point at a directory that never exists in the runtime image, so every
+  # `taskweft://domains/...` / `taskweft://problems/...` resource read can
+  # fail in production while working fine under plain `mix run` (single-
+  # stage, same filesystem) — this bit taskweft_mcp for real once already,
+  # when this data lived in the separate `taskweft_plans` package. Plans now
+  # live in this package's own `priv/plans` (formerly vendored from
+  # `taskweft_plans`, folded in directly to stop juggling two release
+  # packaging surfaces for one bundled dataset); `:code.priv_dir(:taskweft_mcp)`
+  # is still resolved at call time, not baked in, for the same reason.
   defp plans_root do
-    Path.join(:code.priv_dir(:taskweft_plans) |> to_string(), "plans") |> Path.expand()
+    Path.join(:code.priv_dir(:taskweft_mcp) |> to_string(), "plans") |> Path.expand()
   end
 
   # A single user text message — the render-handler shape.
