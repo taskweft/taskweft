@@ -2,7 +2,7 @@ defmodule Taskweft.MCP.Server do
   @moduledoc """
   MCP server for Taskweft.
 
-  Start with `mix taskweft.mcp` (stdio) or `mix taskweft.mcp --http`.
+  Start with `mix taskweft.mcp` or `taskweft mcp` (HTTP only — see `Taskweft.CLI`).
 
   The planner model is **RECTGTN** — Relationship-Enabled Capability-Temporal
   Goal-Task-Network. A domain's `todo_list` (GTPyHOP's own term for this
@@ -59,10 +59,6 @@ defmodule Taskweft.MCP.Server do
   # release version (that's `Application.spec(:taskweft_mcp, :vsn)`, used
   # correctly elsewhere in this file, e.g. the taskweft://meta resource).
   use ExMCP.Server.DSL, name: "taskweft"
-
-  # JSON-LD validation lives in the parent app (`Taskweft.JSONLD.Loader`) so this
-  # dep stays circular-free; standalone runs skip validation.
-  @loader Module.concat(["Taskweft", "JSONLD", "Loader"])
 
   # ---------- TOOLS ----------
 
@@ -238,7 +234,7 @@ defmodule Taskweft.MCP.Server do
     mime_type("application/json")
 
     read(fn _args, _state ->
-      version = Application.spec(:taskweft_mcp, :vsn) |> to_string()
+      version = Application.spec(:taskweft, :vsn) |> to_string()
       {:ok, Jason.encode!(%{"name" => "taskweft", "version" => version})}
     end)
   end
@@ -384,13 +380,7 @@ defmodule Taskweft.MCP.Server do
     end
   end
 
-  defp validate_domain(json) do
-    if Code.ensure_loaded?(@loader) and function_exported?(@loader, :load_string, 1) do
-      apply(@loader, :load_string, [json])
-    else
-      {:ok, json}
-    end
-  end
+  defp validate_domain(json), do: Taskweft.JSONLD.Loader.load_string(json)
 
   # `fail_step = -1` means full replan (no completed prefix). Any other value must
   # point at a real index in the plan; otherwise the planner silently treats it as
@@ -647,33 +637,32 @@ defmodule Taskweft.MCP.Server do
   defp tuple_result({:error, reason}, state) when is_binary(reason), do: {:error, reason, state}
   defp tuple_result({:error, reason}, state), do: {:error, inspect(reason), state}
 
+  # `Taskweft.MCP.Plans` embeds every bundled file into the .beam at compile
+  # time (see its moduledoc) — no runtime `priv/` resolution, no release-
+  # packaging fragility to worry about. `rest` is `"domains/<file>"` or
+  # `"problems/<file>"`; the latter also covers `.notes.json` siblings
+  # (`work_queue.notes.json` etc.), which aren't planning documents but share
+  # the same `taskweft://problems/{file}` template.
   defp read_jsonld("taskweft://" <> rest = uri, state) do
-    case File.read(Path.join(plans_root(), rest)) do
+    lookup =
+      case String.split(rest, "/", parts: 2) do
+        ["domains", file] -> Taskweft.MCP.Plans.domain(file)
+        ["problems", file] -> problem_or_notes(file)
+        _ -> :error
+      end
+
+    case lookup do
       {:ok, content} -> {:ok, %{uri: uri, text: content, mimeType: "application/ld+json"}, state}
-      {:error, _} -> {:error, "unknown resource: #{uri}", state}
+      :error -> {:error, "unknown resource: #{uri}", state}
     end
   end
 
   defp read_jsonld(uri, state), do: {:error, "unknown resource: #{uri}", state}
 
-  # A function, not a module attribute: `:code.priv_dir/1` must resolve
-  # against the *running* release's actual code path. A `@plans_root` module
-  # attribute is evaluated once at `mix compile` time and baked into the
-  # bytecode as a literal — fine for a plain `mix release`, but the hosted
-  # Containerfile runs `mix compile`/`mix release` in a build stage
-  # (`/app/deploy/_build/...`) and only copies the *assembled release* into
-  # the runtime image at a different absolute path. A compile-time-baked path
-  # can point at a directory that never exists in the runtime image, so every
-  # `taskweft://domains/...` / `taskweft://problems/...` resource read can
-  # fail in production while working fine under plain `mix run` (single-
-  # stage, same filesystem) — this bit taskweft_mcp for real once already,
-  # when this data lived in the separate `taskweft_plans` package. Plans now
-  # live in this package's own `priv/plans` (formerly vendored from
-  # `taskweft_plans`, folded in directly to stop juggling two release
-  # packaging surfaces for one bundled dataset); `:code.priv_dir(:taskweft_mcp)`
-  # is still resolved at call time, not baked in, for the same reason.
-  defp plans_root do
-    Path.join(:code.priv_dir(:taskweft_mcp) |> to_string(), "plans") |> Path.expand()
+  defp problem_or_notes(file) do
+    with :error <- Taskweft.MCP.Plans.problem(file) do
+      Taskweft.MCP.Plans.problem_notes(file)
+    end
   end
 
   # A single user text message — the render-handler shape.
