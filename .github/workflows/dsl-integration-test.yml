@@ -1,0 +1,54 @@
+name: DSL Integration Test
+
+on:
+  push:
+    branches: [ main, feature/** ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test_dsl:
+    runs-on: ubuntu-latest
+
+    services:
+      mockserver:
+        image: mockserver/mockserver
+        ports:
+          - 3333:1080
+        options: >-
+          --health-cmd "curl -s http://localhost:1080/status"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir
+        uses: erlang/setup-elixir@v2
+        with:
+          elixir-version: '1.20'
+          otp-version: '27'
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Run unit tests
+        run: mix test --include property
+
+      - name: Test DSL parsing
+        run: |
+          sleep 10  # Wait for MockServer to be healthy
+
+          DSL_DOMAIN='name test_domain
+variable pos type:ref init:%{a:table}
+variable holding type:bool init:%{hand:false}
+action pickup params:[block] body:[pointer_set(/pos/{block},hand)]
+todo_list [[pickup,a]]'
+
+          curl -s -X POST http://localhost:3333/mockserver/management/createExpectation \
+            -H "Content-Type: application/json" \
+            -d '{"httpRequest":{"method":"POST","path":"/tools"},"httpResponse":{"statusCode":200,"body":"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"output\":\"OK\"}}"}}' > /dev/null
+
+          echo "$DSL_DOMAIN" | curl -s -X POST http://localhost:3333/mockserver/management/verify
