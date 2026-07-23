@@ -24,6 +24,7 @@ defmodule Taskweft.MCP.Server do
   | Tool | Description |
   |------|-------------|
   | `plan` | Run the HTN planner over a JSON-LD domain (TwCall / TwGoal / TwMultiGoal, capabilities, duration) |
+  | `plan_dsl` | Run the HTN planner over a DSL domain (Elixir structs) |
   | `replan` | Recover from a failed plan step |
 
   `check_temporal` is not exposed as its own tool; every `plan` response
@@ -43,6 +44,9 @@ defmodule Taskweft.MCP.Server do
   `taskweft://domains/<file>` and `taskweft://problems/<file>`; new files require
   `mix compile` to register.
   """
+
+  alias Taskweft.DSL
+  alias Taskweft.MCP.Plans
 
   use ExMCP.Server.Handler
 
@@ -217,6 +221,37 @@ defmodule Taskweft.MCP.Server do
           # that `plan` returns silently parses to 0 steps (#43), so re-encode the
           # step list before handing it to the NIF.
           Taskweft.replan(domain_json, Jason.encode!(steps), fail_step)
+        end
+      end)
+    end)
+  end
+
+  tool \"plan_dsl\",
+       \"Run the HTN planner over a DSL domain. Accepts a JSON-encoded DSL struct representing the RECTGTN domain. Returns the plan as JSON.\" do
+    param(:domain_dsl, :object,
+      required: true,
+      description:
+        \"An Elixir struct representing the RECTGTN domain, passed as a JSON object. The DSL uses these struct types:\n\n      - `Taskweft.DSL.Domain` — top-level domain definition\n        * `name` (string) — domain name\n        * `variables` (list of %Taskweft.DSL.Variable{}) — state variables\n        * `actions` (map from string to %Taskweft.DSL.Action{}) — primitive actions\n        * `methods` (map from string to %Taskweft.DSL.Method{}) — compound task decompositions\n        * `todo_list` (list) — top-level task list with call arrays\n        * `capabilities` (map, optional) — ReBAC capability graph\n        * `description` (string, optional) — human-readable description\n\n      - `Taskweft.DSL.Variable` — state variable definition\n        * `name` (string)\n        * `type` (string) — \"bool\", \"int\", \"float\", \"ref\", etc.\n        * `init` — for \"bool\"/\"int\"/\"float\": a single value; for \"ref\": a map of instance keys to values\n\n      - `Taskweft.DSL.Action` — primitive action\n        * `params` (list of string) — parameter names\n        * `body` (list of action body nodes) — sequence of eval/check and pointer/set steps\n\n      - `Taskweft.DSL.Method` — compound task method\n        * `params` (list of string)\n        * `alternatives` (list of %Taskweft.DSL.Alternative{}) — decomposition alternatives\n\n      - `Taskweft.DSL.Alternative` — method alternative with optional guard and subtasks\n        * `name` (string)\n        * `check` (list of action body nodes, optional) — preconditions\n        * `subtasks` (list) — call arrays like [[\"action_name\", \"arg\", ...], ...]\n\n      - `Taskweft.DSL.Eval` — evaluation node for conditions/guards\n        * `type` (string) — \"math/eq\", \"math/neq\", \"rebac/check\", etc.\n        * `a` and `b` — LHS and RHS values\n\n      - `Taskweft.DSL.PointerSet` — state update node\n        * `pointer` (string) — variable path like \"pos/block\"\n        * `value` (any) — new value\n\n      - `Taskweft.DSL.VariableRef` — reference to a variable for substitution\n        * `var` (string) — variable name, will be substituted as {var} in output\n\n    Example domain DSL:\n      {\n        \"name\": \"blocks_world\",\n        \"variables\": [\n          {\"name\": \"pos\", \"type\": \"ref\", \"init\": {\"a\": \"b\", \"b\": \"table\"}},\n          {\"name\": \"holding\", \"type\": \"bool\", \"init\": false}\n        ],\n        \"actions\": {\n          \"a_pickup\": {\n            \"params\": [\"block\"],\n            \"body\": [\n              {\"type\": \"math/eq\", \"a\": {\"pointer\": \"/pos/block\"}, \"b\": \"table\"},\n              {\"pointer\": \"/pos/block\", \"value\": \"hand\"}\n            ]\n          }\n        },\n        \"methods\": {\n          \"get\": {\n            \"params\": [\"block\"],\n            \"alternatives\": [\n              {\n                \"name\": \"pickup_from_table\",\n                \"check\": [{\"type\": \"math/eq\", \"a\": {\"pointer\": \"/pos/block\"}, \"b\": \"table\"}],\n                \"subtasks\": [[\"a_pickup\", \"{block}\"]]\n              }\n            ]\n          }\n        },\n        \"todo_list\": [[\"get\", \"a\"]]\n      }\n    \"
+    )
+
+    param(:explain, :boolean,
+      required: false,
+      description:
+        \"When true, include an explain tree for successful plans and return structured no_plan diagnostics instead of a bare failure token.\"
+    )
+
+    run(fn args, state ->
+      guarded(state, fn ->
+        domain_dsl = Map.fetch!(args, :domain_dsl)
+        explain = Map.get(args, :explain, false)
+
+        # Compile DSL to JSON-LD
+        case DSL.compile(domain_dsl) do
+          {:ok, domain_json} ->
+            do_plan(domain_json, explain)
+
+          {:error, reason} ->
+            {:error, reason}
         end
       end)
     end)

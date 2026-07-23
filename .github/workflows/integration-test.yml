@@ -1,0 +1,115 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      elixir:
+        image: elixir:1.20-alpine
+        options: >-
+          --health-cmd "mix help"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 20000:20000
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: actions/setup-elixir@v2
+      with:
+        elixir-version: '1.20'
+        otp-version: '27'
+        cache: 'mix'
+
+    - name: Cache build
+      uses: actions/cache@v4
+      with:
+        path: |
+          deps
+          _build
+        key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-mix-
+
+    - name: Install dependencies
+      run: |
+        mix local.hex --force
+        mix local.rebar --force
+        mix deps.get
+
+    - name: Compile project
+      run: mix compile
+
+    - name: Run unit tests
+      run: mix test
+
+    - name: Run property tests
+      run: mix test --include property
+
+    - name: Start MCP server
+      run: |
+        mix taskweft.mcp > /tmp/mcp_server.log 2>&1 &
+        echo $! > /tmp/mcp_server.pid
+        sleep 5
+
+    - name: Test tools/list via curl
+      run: |
+        curl -s -X POST http://localhost:20000/mcp/v1 \
+          -H "Content-Type: application/json" \
+          -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+          | jq -e '.result.tools[] | select(.name == "plan_dsl")' > /dev/null
+        echo "✓ plan_dsl tool registered"
+
+    - name: Test validate tool via curl
+      run: |
+        curl -s -X POST http://localhost:20000/mcp/v1 \
+          -H "Content-Type: application/json" \
+          -d '{
+            "jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+              "name":"validate",
+              "arguments":{
+                "domain_json":"{\"@context\":{\"vsekai\":\"https://v-sekai.org/\",\"domain\":\"vsekai:planning/domain/\"},\"@type\":\"domain:Definition\",\"name\":\"test\",\"variables\":[{\"name\":\"x\",\"type\":\"bool\",\"init\":true}],\"actions\":{\"test\":{\"params\":[],\"body\":[]}},\"methods\":{\"_fallback\":{\"params\":[],\"alternatives\":[]}},\"todo_list\":[[\"test\"]]}"
+              }
+            }
+          }' | jq -e '.result.isError == false' > /dev/null
+        echo "✓ Validate tool works"
+
+    - name: Test plan tool via curl
+      run: |
+        curl -s -X POST http://localhost:20000/mcp/v1 \
+          -H "Content-Type: application/json" \
+          -d '{
+            "jsonrpc":"2.0","id":3,"method":"tools/call","params":{
+              "name":"plan",
+              "arguments":{
+                "domain_json":"{\"@context\":{\"vsekai\":\"https://v-sekai.org/\",\"domain\":\"vsekai:planning/domain/\"},\"@type\":\"domain:Definition\",\"name\":\"test\",\"variables\":[{\"name\":\"x\",\"type\":\"bool\",\"init\":true}],\"actions\":{\"test\":{\"params\":[],\"body\":[]}},\"methods\":{\"_fallback\":{\"params\":[],\"alternatives\":[]}},\"todo_list\":[[\"test\"]]}"
+              }
+            }
+          }' | jq -e '.result.isError == false' > /dev/null
+        echo "✓ Plan tool works"
+
+    - name: Cleanup
+      if: always()
+      run: |
+        if [ -f /tmp/mcp_server.pid ]; then
+          kill $(cat /tmp/mcp_server.pid) 2>/dev/null || true
+        fi
+
+    - name: Upload logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: mcp-server-logs
+        path: /tmp/mcp_server.log
+        retention-days: 7
