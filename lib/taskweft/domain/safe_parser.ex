@@ -25,32 +25,34 @@ defmodule Taskweft.Domain.SafeParser do
   Returns `{:ok, json_string}` or `{:error, reason}`.
   """
   def parse(dsl_source) when is_binary(dsl_source) do
-    with {:ok, ast} <-
-           Code.string_to_quoted(dsl_source,
-             columns: true,
-             literal_encoder: fn
-               {:sigil, _, _}, _meta -> {:ok, {:sigil, :__block__, []}}
-               other, _meta -> {:ok, other}
-             end
-           ),
-         {:ok, domain} <- walk_ast(ast) do
-      {:ok, Jason.encode!(finalize(domain))}
+    case Code.string_to_quoted(dsl_source,
+           columns: true,
+           literal_encoder: fn
+             {:sigil, _, _}, _meta -> {:ok, {:sigil, :__block__, []}}
+             other, _meta -> {:ok, other}
+           end
+         ) do
+      {:ok, {:__block__, _, expressions}} ->
+        try do
+          domain = Enum.reduce(expressions, initial_domain(), &reduce_ast/2)
+          {:ok, Jason.encode!(finalize(domain))}
+        catch
+          {:invalid, reason} -> {:error, "RECTGTN compliance error: #{reason}"}
+        end
+
+      {:ok, single} ->
+        # Single expression (no block wrapping needed for one-liners)
+        try do
+          domain = reduce_ast(single, initial_domain())
+          {:ok, Jason.encode!(finalize(domain))}
+        catch
+          {:invalid, reason} -> {:error, "RECTGTN compliance error: #{reason}"}
+        end
+
+      {:error, {_line, err, _token}} ->
+        {:error, "Syntax error: #{err}"}
     end
   end
-
-  defp walk_ast({:__block__, _, expressions}) do
-    walk_expressions(expressions, initial_domain())
-  end
-
-  defp walk_ast(single) do
-    walk_expressions([single], initial_domain())
-  end
-
-  defp walk_expressions([expr | rest], acc) do
-    walk_expressions(rest, reduce_ast(expr, acc))
-  end
-
-  defp walk_expressions([], acc), do: {:ok, acc}
 
   defp initial_domain do
     %{
@@ -164,6 +166,12 @@ defmodule Taskweft.Domain.SafeParser do
     %{acc | "todo_list" => parse_todo_list(list)}
   end
 
+  # ── Fallback: reject anything unrecognised ───────────────────────────
+
+  defp reduce_ast(other, _acc) do
+    throw({:invalid, "unrecognised construct: #{inspect(other)}"})
+  end
+
   # ── Body step parsers ─────────────────────────────────────────────────
 
   defp parse_body_steps({:__block__, _, steps}), do: Enum.flat_map(steps, &parse_body_step/1)
@@ -196,6 +204,10 @@ defmodule Taskweft.Domain.SafeParser do
     %{"type" => "pointer/get", "pointer" => safe_string(ptr)}
   end
 
+  defp parse_body_step(other) do
+    throw({:invalid, "malformed step: #{inspect(other)}"})
+  end
+
   # ── Alternative parsers ───────────────────────────────────────────────
 
   defp parse_alternatives([{:__block__, _, alts} | _]), do: parse_alternatives(alts)
@@ -223,7 +235,7 @@ defmodule Taskweft.Domain.SafeParser do
   defp parse_subtasks({:__block__, _, tasks}) do
     Enum.map(tasks, fn
       {:list, _, items} -> Enum.map(items, &safe_subtask_elem/1)
-      _ -> []
+      other -> throw({:invalid, "malformed subtask: #{inspect(other)}"})
     end)
   end
 
@@ -238,6 +250,9 @@ defmodule Taskweft.Domain.SafeParser do
   defp safe_subtask_elem(bin) when is_binary(bin), do: bin
   defp safe_subtask_elem(int) when is_integer(int), do: int
 
+  defp safe_subtask_elem(other),
+    do: throw({:invalid, "non-literal in subtask: #{inspect(other)}"})
+
   defp parse_checks(checks) do
     Enum.map(checks, fn
       {:condition, _, [type_atom, a, b]} ->
@@ -246,8 +261,8 @@ defmodule Taskweft.Domain.SafeParser do
       {:condition, _, [type_atom, a]} ->
         %{"eval" => %{"type" => atom_str(type_atom), "a" => safe_expr(a)}}
 
-      _ ->
-        []
+      other ->
+        throw({:invalid, "malformed check: #{inspect(other)}"})
     end)
   end
 
@@ -274,8 +289,8 @@ defmodule Taskweft.Domain.SafeParser do
       {:%{}, _, pairs} ->
         Map.new(pairs, fn {k, v} -> {atom_str(k), safe_string(v)} end)
 
-      _other ->
-        []
+      other ->
+        throw({:invalid, "malformed graph edge: #{inspect(other)}"})
     end)
   end
 
@@ -299,6 +314,10 @@ defmodule Taskweft.Domain.SafeParser do
 
   defp parse_todo_entry({:%{}, _, [{:multigoal, _, [mg_pair]}]}) do
     parse_multigoal(mg_pair)
+  end
+
+  defp parse_todo_entry(other) do
+    throw({:invalid, "malformed todo_list entry: #{inspect(other)}"})
   end
 
   defp parse_goal_entries({:__block__, _, entries}) do
@@ -349,11 +368,15 @@ defmodule Taskweft.Domain.SafeParser do
   defp safe_literal({:__aliases__, _, parts}),
     do: parts |> Enum.map(&Atom.to_string/1) |> Enum.join(".")
 
+  defp safe_literal(other), do: throw({:invalid, "non-literal value: #{inspect(other)}"})
+
   defp safe_string(val) when is_binary(val), do: val
   defp safe_string(atom) when is_atom(atom), do: Atom.to_string(atom)
+  defp safe_string(other), do: throw({:invalid, "non-string value: #{inspect(other)}"})
 
   defp safe_key(atom) when is_atom(atom), do: Atom.to_string(atom)
   defp safe_key(bin) when is_binary(bin), do: bin
+  defp safe_key(other), do: throw({:invalid, "non-literal key: #{inspect(other)}"})
 
   defp safe_expr(val) when is_binary(val), do: val
   defp safe_expr(val) when is_integer(val), do: val
@@ -371,5 +394,10 @@ defmodule Taskweft.Domain.SafeParser do
     Map.new(pairs, fn {k, v} -> {safe_key(k), safe_literal(v)} end)
   end
 
+  defp safe_expr(other) do
+    throw({:invalid, "non-literal expression: #{inspect(other)}"})
+  end
+
   defp atom_str(atom) when is_atom(atom), do: Atom.to_string(atom)
+  defp atom_str(other), do: throw({:invalid, "expected atom, got: #{inspect(other)}"})
 end

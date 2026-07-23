@@ -338,7 +338,7 @@ defmodule Taskweft.Domain.Persist do
   defp format_expr(value), do: inspect(value)
 
   defp format_init_value(value) when is_binary(value) do
-    if Regex.match?(~r/^[a-z_][a-zA-Z0-9_]*$/, value) do
+    if value =~ ~r/^[a-z_]/ and value =~ ~r/^[a-zA-Z0-9_]+$/ and not value =~ ~r/^[0-9]/ do
       ~s["#{value}"]
     else
       inspect(value)
