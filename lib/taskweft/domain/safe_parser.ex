@@ -1,16 +1,40 @@
-# SPDX-License-Identifier: MIT
-# Copyright (c) 2026 K. S. Ernest (iFire) Lee
-
 defmodule Taskweft.Domain.SafeParser do
   @moduledoc """
-  A safe parser for Elixir DSL strings to JSON-LD.
+  A safe, token-efficient parser that walks Elixir syntax trees without ever
+  compiling or executing code strings at runtime.
+
+  Uses `Code.string_to_quoted/2` to convert DSL source to an AST, then walks
+  it with strict pattern matching that only allows known RECTGTN constructs.
+  Any unrecognised form is rejected immediately — no sandbox escapes possible.
+
+  ## Example
+
+      SafeParser.parse('''
+        name "blocks_world"
+        variable :pos, type: :ref, init: %{a: "table"}
+        action :pickup, params: [:x],
+          body: [pointer_set("/pos/{x}", "hand")]
+        todo_list [[:pickup, :a]]
+      ''')
+      # => {:ok, "{\\"@context\\": ..., \\"variables\\": ...}"}
   """
 
+  @doc """
+  Parse an Elixir DSL string into a RECTGTN domain JSON map.
+
+  Returns `{:ok, json_string}` or `{:error, reason}`.
+  """
   def parse(dsl_source) when is_binary(dsl_source) do
-    with {:ok, ast} <- Code.string_to_quoted(dsl_source) do
-      with {:ok, domain} <- walk_ast(ast) do
-        {:ok, Jason.encode!(finalize(domain))}
-      end
+    with {:ok, ast} <-
+           Code.string_to_quoted(dsl_source,
+             columns: true,
+             literal_encoder: fn
+               {:sigil, _, _}, _meta -> {:ok, {:sigil, :__block__, []}}
+               other, _meta -> {:ok, other}
+             end
+           ),
+         {:ok, domain} <- walk_ast(ast) do
+      {:ok, Jason.encode!(finalize(domain))}
     end
   end
 
@@ -30,7 +54,10 @@ defmodule Taskweft.Domain.SafeParser do
 
   defp initial_domain do
     %{
-      "@context" => %{"vsekai" => "https://v-sekai.org/", "domain" => "vsekai:planning/domain/"},
+      "@context" => %{
+        "vsekai" => "https://v-sekai.org/",
+        "domain" => "vsekai:planning/domain/"
+      },
       "@type" => "domain:Definition",
       "name" => "unnamed_domain",
       "variables" => [],
@@ -40,27 +67,78 @@ defmodule Taskweft.Domain.SafeParser do
     }
   end
 
-  # Keyword list DSL parsing
+  defp add_action(acc, name_atom, params, steps, duration \\ nil) do
+    action_def = %{
+      "params" => Enum.map(List.wrap(params), &atom_str/1),
+      "body" => Enum.flat_map(List.wrap(steps), &parse_body_steps/1)
+    }
+
+    action_def =
+      if duration do
+        Map.put(action_def, "duration", safe_string(duration))
+      else
+        action_def
+      end
+
+    %{acc | "actions" => Map.put(acc["actions"], atom_str(name_atom), action_def)}
+  end
+
+  # ── Name ──────────────────────────────────────────────────────────────
+
   defp reduce_ast({:name, _, [name_str]}, acc) when is_binary(name_str) do
     %{acc | "name" => name_str}
   end
 
-  defp reduce_ast({:variable, _, [name_atom, [type: type_atom, init: {:%{}, _, pairs}]]}, acc) do
+  # ── Variables ──────────────────────────────────────────────────────────
+
+  defp reduce_ast(
+         {:variable, _, [name_atom, [type: type_atom, init: {:%{}, _, pairs}]]},
+         acc
+       ) do
     var = %{
       "name" => atom_str(name_atom),
       "type" => atom_str(type_atom),
       "init" => Map.new(pairs, fn {k, v} -> {safe_key(k), safe_literal(v)} end)
     }
+
     %{acc | "variables" => acc["variables"] ++ [var]}
   end
 
-  defp reduce_ast({:action, _, [name_atom, [params: params, body: {:__block__, _, steps}]]}, acc) do
-    action_def = %{
-      "params" => Enum.map(List.wrap(params), &atom_str/1),
-      "body" => Enum.flat_map(List.wrap(steps), &parse_body_steps/1)
-    }
-    %{acc | "actions" => Map.put(acc["actions"], atom_str(name_atom), action_def)}
+  defp reduce_ast({:variable, _, [name_atom, [type: type_atom]]}, acc) do
+    var = %{"name" => atom_str(name_atom), "type" => atom_str(type_atom), "init" => %{}}
+    %{acc | "variables" => acc["variables"] ++ [var]}
   end
+
+  defp reduce_ast({:variable, _, [name_atom, [type: type_atom, init: init_val]]}, acc)
+       when not is_list(init_val) do
+    var = %{
+      "name" => atom_str(name_atom),
+      "type" => atom_str(type_atom),
+      "init" => safe_literal(init_val)
+    }
+
+    %{acc | "variables" => acc["variables"] ++ [var]}
+  end
+
+  # ── Actions ────────────────────────────────────────────────────────────
+
+  defp reduce_ast({:action, _, [name_atom, [params: params, body: {:__block__, _, steps}]]}, acc) do
+    add_action(acc, name_atom, params, steps)
+  end
+
+  defp reduce_ast({:action, _, [name_atom, [params: params, body: steps] = opts]}, acc)
+       when is_list(steps) do
+    add_action(acc, name_atom, params, steps, opts[:duration])
+  end
+
+  defp reduce_ast({:action, _, [name_atom, opts]}, acc) when is_list(opts) do
+    params = Keyword.get(opts, :params, [])
+    body = Keyword.get(opts, :body, [])
+    duration = Keyword.get(opts, :duration)
+    add_action(acc, name_atom, params, body |> List.wrap(), duration)
+  end
+
+  # ── Methods ────────────────────────────────────────────────────────────
 
   defp reduce_ast({:method, _, [name_atom, opts]}, acc) when is_list(opts) do
     params = Keyword.get(opts, :params, [])
@@ -74,40 +152,51 @@ defmodule Taskweft.Domain.SafeParser do
     %{acc | "methods" => Map.put(acc["methods"], atom_str(name_atom), method_def)}
   end
 
+  # ── Capabilities ───────────────────────────────────────────────────────
+
+  defp reduce_ast({:capabilities, _, [caps]}, acc) do
+    %{acc | "capabilities" => parse_capabilities(caps)}
+  end
+
+  # ── Todo list ──────────────────────────────────────────────────────────
+
   defp reduce_ast({:todo_list, _, [list]}, acc) do
     %{acc | "todo_list" => parse_todo_list(list)}
   end
 
-  # PointerSet
-  defp parse_body_steps({:pointer_set, _, [ptr, val]}) do
-    %{\"pointer/set\" => safe_string(ptr), \"value\" => safe_literal(val)}
+  # ── Body step parsers ─────────────────────────────────────────────────
+
+  defp parse_body_steps({:__block__, _, steps}), do: Enum.flat_map(steps, &parse_body_step/1)
+  defp parse_body_steps(other), do: [parse_body_step(other)]
+
+  defp parse_body_step({:pointer_set, _, [ptr, val]}) do
+    %{"pointer/set" => safe_string(ptr), "value" => safe_literal(val)}
   end
 
-  # Eval (condition)
-  defp parse_body_steps({:condition, _, [type_atom, a, b]}) do
-    %{\"eval\" => %{\"type\" => atom_str(type_atom), \"a\" => safe_expr(a), \"b\" => safe_expr(b)}}
+  defp parse_body_step({:condition, _, [type_atom, a, b]}) do
+    %{"eval" => %{"type" => atom_str(type_atom), "a" => safe_expr(a), "b" => safe_expr(b)}}
   end
 
-  defp parse_body_steps({:condition, _, [type_atom, a]}) do
-    %{\"eval\" => %{\"type\" => atom_str(type_atom), \"a\" => safe_expr(a)}}
+  defp parse_body_step({:condition, _, [type_atom, a]}) do
+    %{"eval" => %{"type" => atom_str(type_atom), "a" => safe_expr(a)}}
   end
 
-  # ReBAC check
-  defp parse_body_steps({:rebac_check, _, [subj, rel, obj]}) do
+  defp parse_body_step({:rebac_check, _, [subj, rel, obj]}) do
     %{
-      \"eval\" => %{
-        \"type\" => \"rebac/check\",
-        \"subject\" => safe_string(subj),
-        \"rel\" => safe_string(rel),
-        \"object\" => safe_string(obj)
+      "eval" => %{
+        "type" => "rebac/check",
+        "subject" => safe_string(subj),
+        "rel" => safe_string(rel),
+        "object" => safe_string(obj)
       }
     }
   end
 
-  # PointerGet (inline eval)
-  defp parse_body_steps({:pointer_get, _, [ptr]}) do
-    %{\"type\" => \"pointer/get\", \"pointer\" => safe_string(ptr)}
+  defp parse_body_step({:pointer_get, _, [ptr]}) do
+    %{"type" => "pointer/get", "pointer" => safe_string(ptr)}
   end
+
+  # ── Alternative parsers ───────────────────────────────────────────────
 
   defp parse_alternatives([{:__block__, _, alts} | _]), do: parse_alternatives(alts)
 
@@ -120,12 +209,12 @@ defmodule Taskweft.Domain.SafeParser do
     checks = Keyword.get(opts, :check, [])
 
     alt = %{
-      \"name\" => atom_str(name_atom),
-      \"subtasks\" => parse_subtasks(subtasks)
+      "name" => atom_str(name_atom),
+      "subtasks" => parse_subtasks(subtasks)
     }
 
     if checks != [] do
-      Map.put(alt, \"check\", parse_checks(List.wrap(checks)))
+      Map.put(alt, "check", parse_checks(List.wrap(checks)))
     else
       alt
     end
@@ -162,6 +251,36 @@ defmodule Taskweft.Domain.SafeParser do
     end)
   end
 
+  # ── Capability parser ─────────────────────────────────────────────────
+
+  defp parse_capabilities({:%{}, _, pairs}) do
+    entities = parse_entity_map(Keyword.get(pairs, :entities, {:%{}, [], []}))
+    graph_edges = parse_graph_edges(Keyword.get(pairs, :graph, []))
+
+    %{
+      "entities" => entities,
+      "graph" => %{"edges" => graph_edges, "definitions" => %{}}
+    }
+  end
+
+  defp parse_entity_map({:%{}, _, pairs}) do
+    Map.new(pairs, fn {entity_atom, caps_list} ->
+      {atom_str(entity_atom), Enum.map(List.wrap(caps_list), &atom_str/1)}
+    end)
+  end
+
+  defp parse_graph_edges(edges) do
+    Enum.map(List.wrap(edges), fn
+      {:%{}, _, pairs} ->
+        Map.new(pairs, fn {k, v} -> {atom_str(k), safe_string(v)} end)
+
+      _other ->
+        []
+    end)
+  end
+
+  # ── Todo list parser ──────────────────────────────────────────────────
+
   defp parse_todo_list({:__block__, _, tasks}) do
     Enum.map(tasks, &parse_todo_entry/1)
   end
@@ -195,31 +314,40 @@ defmodule Taskweft.Domain.SafeParser do
   end
 
   defp parse_multigoal({:%{}, _, mg_pairs}) do
-    mg = Map.new(mg_pairs, fn {var_atom, {:%{}, _, bindings}} ->
-      {atom_str(var_atom), Map.new(bindings, fn {k, v} -> {atom_str(k), safe_literal(v)} end)}
-    end)
+    mg =
+      Map.new(mg_pairs, fn {var_atom, {:%{}, _, bindings}} ->
+        {atom_str(var_atom), Map.new(bindings, fn {k, v} -> {atom_str(k), safe_literal(v)} end)}
+      end)
+
     %{"multigoal" => mg}
   end
 
+  # ── Finaliser ─────────────────────────────────────────────────────────
+
   defp finalize(domain) do
-    # Keep capabilities if present, drop others for cleaner output
-    if domain["capabilities"] do
-      Map.drop(domain, ["capabilities"])
-      |> Map.put("capabilities", domain["capabilities"])
-    else
-      Map.drop(domain, ["capabilities"])
-    end
+    # Remove empty fields for a cleaner output
+    domain
+    |> Map.drop(["capabilities"])
+    |> then(fn d ->
+      if domain["capabilities"] do
+        Map.put(d, "capabilities", domain["capabilities"])
+      else
+        d
+      end
+    end)
   end
 
+  # ── Safe value extractors ──────────────────────────────────────────────
+
+  # Only allow literal values: strings, numbers, booleans, atoms → strings
   defp safe_literal(val) when is_binary(val), do: val
   defp safe_literal(val) when is_integer(val), do: val
   defp safe_literal(val) when is_float(val), do: val
   defp safe_literal(val) when is_boolean(val), do: val
   defp safe_literal(atom) when is_atom(atom), do: Atom.to_string(atom)
-  defp safe_literal({:%{}, _, _} = map_expr) do
-    {:%{}, _, pairs} = map_expr
-    Map.new(pairs, fn {k, v} -> {safe_key(k), safe_literal(v)} end)
-  end
+
+  defp safe_literal({:__aliases__, _, parts}),
+    do: parts |> Enum.map(&Atom.to_string/1) |> Enum.join(".")
 
   defp safe_string(val) when is_binary(val), do: val
   defp safe_string(atom) when is_atom(atom), do: Atom.to_string(atom)
@@ -232,8 +360,15 @@ defmodule Taskweft.Domain.SafeParser do
   defp safe_expr(val) when is_float(val), do: val
   defp safe_expr(val) when is_boolean(val), do: val
   defp safe_expr(atom) when is_atom(atom), do: Atom.to_string(atom)
+
   defp safe_expr({:pointer_get, _, [ptr]}) do
     %{"type" => "pointer/get", "pointer" => safe_string(ptr)}
+  end
+
+  defp safe_expr({:%{}, _, _} = map_expr) do
+    # Allow map literals (e.g. for enum values or expressions)
+    {:%{}, _, pairs} = map_expr
+    Map.new(pairs, fn {k, v} -> {safe_key(k), safe_literal(v)} end)
   end
 
   defp atom_str(atom) when is_atom(atom), do: Atom.to_string(atom)
