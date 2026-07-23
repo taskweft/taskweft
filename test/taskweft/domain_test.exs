@@ -40,7 +40,7 @@ defmodule Taskweft.DomainTest do
     {"temporal_travel", "temporal_travel_one"},
     {"temporal_travel", "temporal_travel_two"},
     {"trust_topology_audit", "trust_topology_audit_curvenet"},
-    {"service_bringup", "chi176_local_infra_bringup"},
+    {"service_bringup", "chi176_local_infra_bringup"}
   ]
 
   # Standalone domains with no paired problems — tested from domain alone
@@ -51,6 +51,7 @@ defmodule Taskweft.DomainTest do
 
     d = File.read!(Path.join(@domains_path, "#{domain_name}.jsonld"))
     p = File.read!(Path.join(@problems_path, "#{problem_name}.jsonld"))
+
     merged =
       Jason.decode!(d) |> Map.merge(Jason.decode!(p)) |> Jason.encode!()
 

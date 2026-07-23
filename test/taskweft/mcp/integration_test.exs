@@ -13,7 +13,7 @@ defmodule Taskweft.MCP.IntegrationTest do
     Application.ensure_all_started(:inets)
     Application.ensure_all_started(:ssl)
 
-    port = 20000 + :erlang.unique_integer([:positive]) |> rem(40000)
+    port = (20000 + :erlang.unique_integer([:positive])) |> rem(40000)
     server_opts = [transport: :http, port: port, host: "127.0.0.1"]
     {:ok, server} = Taskweft.MCP.Server.start_link(server_opts)
     url = "http://127.0.0.1:#{port}"
@@ -50,7 +50,11 @@ defmodule Taskweft.MCP.IntegrationTest do
     test "returns golden plan for blocks_world", %{client: client} do
       domain = File.read!("priv/plans/domains/blocks_world.jsonld")
       problem = File.read!("priv/plans/problems/blocks_world_1a.jsonld")
-      golden = Jason.decode!(File.read!("priv/plans/expected/blocks_world__blocks_world_1a_expected.json"))
+
+      golden =
+        Jason.decode!(
+          File.read!("priv/plans/expected/blocks_world__blocks_world_1a_expected.json")
+        )
 
       merged =
         Jason.decode!(domain) |> Map.merge(Jason.decode!(problem)) |> Jason.encode!()
@@ -65,7 +69,11 @@ defmodule Taskweft.MCP.IntegrationTest do
     test "returns golden plan for entity_capabilities", %{client: client} do
       domain = File.read!("priv/plans/domains/entity_capabilities.jsonld")
       problem = File.read!("priv/plans/problems/entity_caps_drone.jsonld")
-      golden = Jason.decode!(File.read!("priv/plans/expected/entity_capabilities__entity_caps_drone_expected.json"))
+
+      golden =
+        Jason.decode!(
+          File.read!("priv/plans/expected/entity_capabilities__entity_caps_drone_expected.json")
+        )
 
       merged =
         Jason.decode!(domain) |> Map.merge(Jason.decode!(problem)) |> Jason.encode!()
@@ -78,7 +86,9 @@ defmodule Taskweft.MCP.IntegrationTest do
     test "returns golden plan for healthcare", %{client: client} do
       domain = File.read!("priv/plans/domains/healthcare.jsonld")
       problem = File.read!("priv/plans/problems/healthcare_one.jsonld")
-      golden = Jason.decode!(File.read!("priv/plans/expected/healthcare__healthcare_one_expected.json"))
+
+      golden =
+        Jason.decode!(File.read!("priv/plans/expected/healthcare__healthcare_one_expected.json"))
 
       merged =
         Jason.decode!(domain) |> Map.merge(Jason.decode!(problem)) |> Jason.encode!()
