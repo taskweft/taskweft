@@ -67,15 +67,14 @@ defmodule Taskweft.MCP.Server do
 
   tool "plan",
        "Run the IPyHOP-style HTN planner over a JSON-LD domain. Returns the plan as JSON." do
-    param(:domain_json, :object,
+    param(:domain_json, :string,
       required: true,
       description: """
-      A JSON-LD HTN domain object for the RECTGTN planner (Relationship-Enabled
-      Capability-Temporal Goal-Task-Network; pointer-based IPyHOP) — pass the
-      parsed JSON object directly, not a JSON-encoded string. The two required
-      keys are LITERALLY "@type" and "name" WITH the "@" — this is JSON-LD, not
-      a generic "type"/"context" object; "type" and "context" (no "@") are NOT
-      recognized keys and the document is rejected as if they were absent.
+      A JSON-LD HTN domain object for the RECTGTN planner, passed as a
+      JSON-encoded string. The two required keys are LITERALLY "@type" and
+      "name" WITH the "@" — this is JSON-LD, not a generic "type"/"context"
+      object; "type" and "context" (no "@") are NOT recognized keys and the
+      document is rejected as if they were absent.
       Shape:
         "@context": {"vsekai": "https://v-sekai.org/", "domain": "vsekai:planning/domain/"}
         "@type": "domain:Definition", "name": <string>
@@ -179,17 +178,26 @@ defmodule Taskweft.MCP.Server do
 
     run(fn args, state ->
       guarded(state, fn ->
-        domain = Map.fetch!(args, :domain_json)
+        domain_json = Map.fetch!(args, :domain_json)
         explain = Map.get(args, :explain, false)
-        plan_with_optional_explain(Jason.encode!(domain), explain)
+        plan_with_optional_explain(domain_json, explain)
       end)
     end)
   end
 
   tool "replan",
        "Replan after a step failure. Pass the original domain, the previously-returned plan, and the index of the failed step (-1 for full replan)." do
-    param(:domain_json, :object, required: true)
-    param(:plan_json, :object, required: true)
+    param(:domain_json, :string,
+      required: true,
+      description:
+        "JSON-encoded JSON-LD domain object (same format as the plan tool's domain_json)."
+    )
+
+    param(:plan_json, :object,
+      required: true,
+      description:
+        "The previously-returned plan object (the {\"plan\": [...]} envelope or a bare step array)."
+    )
 
     param(:fail_step, :integer,
       required: false,
@@ -198,11 +206,9 @@ defmodule Taskweft.MCP.Server do
 
     run(fn args, state ->
       guarded(state, fn ->
-        domain = Map.fetch!(args, :domain_json)
+        domain_json = Map.fetch!(args, :domain_json)
         plan_arg = Map.fetch!(args, :plan_json)
         fail_step = Map.get(args, :fail_step, -1)
-
-        domain_json = Jason.encode!(domain)
 
         with {:ok, steps} <- decode_plan(plan_arg),
              :ok <- validate_fail_step(steps, fail_step),
@@ -218,12 +224,16 @@ defmodule Taskweft.MCP.Server do
 
   tool "validate",
        "Validate a JSON-LD domain/problem document without planning. Returns the normalized document JSON on success, or a validation error. plan/replan do not validate — call this first if you want to check a document's shape without also attempting to solve it." do
-    param(:domain_json, :object, required: true)
+    param(:domain_json, :string,
+      required: true,
+      description:
+        "JSON-encoded JSON-LD domain object (same format as the plan tool's domain_json)."
+    )
 
     run(fn args, state ->
       guarded(state, fn ->
-        domain = Map.fetch!(args, :domain_json)
-        validate_domain(Jason.encode!(domain))
+        domain_json = Map.fetch!(args, :domain_json)
+        validate_domain(domain_json)
       end)
     end)
   end
