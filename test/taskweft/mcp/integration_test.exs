@@ -56,10 +56,7 @@ defmodule Taskweft.MCP.IntegrationTest do
           File.read!("priv/plans/expected/blocks_world__blocks_world_1a_expected.json")
         )
 
-      merged =
-        Jason.decode!(domain_dsl) |> Jason.encode!()
-
-      {:ok, content} = Client.call_tool(client, "plan", %{domain_dsl: merged})
+      {:ok, content} = Client.call_tool(client, "plan", %{domain_dsl: domain_dsl})
       plan = decode_plan(content)
 
       assert plan["plan"] == golden["plan"],
