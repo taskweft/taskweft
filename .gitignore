@@ -41,3 +41,4 @@ __pycache__/
 
 # DETS files produced by tests
 *.dets
+.elixir_ls/
