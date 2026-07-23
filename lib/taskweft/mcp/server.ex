@@ -591,8 +591,8 @@ defmodule Taskweft.MCP.Server do
   defp encode_yaml_scalar(false), do: "false"
   defp encode_yaml_scalar(val) when is_atom(val), do: Atom.to_string(val)
 
-  # `fail_step = -1` means full replan (no completed prefix). Any other value must
-  # point at a real index in the plan; otherwise the planner silently treats it as
+  # `fail_step = -1` means full replan. Any other value must point at a real
+  # index in the plan; otherwise the planner silently treats it as
   # past-the-end success.
   defp validate_fail_step(_steps, -1), do: :ok
 
