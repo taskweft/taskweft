@@ -145,7 +145,6 @@ defmodule Taskweft.MixProject do
       {:jason, "~> 1.4"},
       {:ex_json_schema, "~> 0.10"},
       {:yaml_elixir, "~> 2.11"},
-      {:sourceror, "~> 1.0"},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:propcheck, "~> 1.4", only: [:test, :dev], runtime: false},
       {:mox, "~> 1.2", only: :test},
