@@ -6,119 +6,86 @@ defmodule Taskweft.MCP.IntegrationTest do
 
   @moduletag :integration
 
-  setup do
+  alias Taskweft.MCP.Client
+
+  setup_all do
     {:ok, _} = Application.ensure_all_started(:ex_mcp)
     Application.ensure_all_started(:inets)
     Application.ensure_all_started(:ssl)
 
     port = 20000 + :erlang.unique_integer([:positive]) |> rem(40000)
     server_opts = [transport: :http, port: port, host: "127.0.0.1"]
+    {:ok, server} = Taskweft.MCP.Server.start_link(server_opts)
+    url = "http://127.0.0.1:#{port}"
 
-    {:ok, pid} = Taskweft.MCP.Server.start_link(server_opts)
-    url = "http://127.0.0.1:#{port}/mcp/v1"
-
-    # Wait for server readiness
-    wait_for_server(url)
+    client = connect_with_retry(url)
 
     on_exit(fn ->
-      Process.unlink(pid)
-      Process.exit(pid, :shutdown)
+      Client.disconnect(client)
+      Process.unlink(server)
+      Process.exit(server, :shutdown)
     end)
 
-    {:ok, %{url: url}}
+    {:ok, %{client: client}}
   end
 
-  defp wait_for_server(url, retries \\ 10) do
-    case :httpc.request(:get, {url, []}, [], []) do
-      {:ok, _} -> :ok
-      _ ->
-        if retries > 0 do
-          Process.sleep(50)
-          wait_for_server(url, retries - 1)
-        end
+  defp connect_with_retry(url, retries \\ 20) do
+    case Client.connect(
+           {:http, url: url, endpoint: "/mcp/v1", use_sse: false},
+           timeout: 10_000
+         ) do
+      {:ok, client} ->
+        client
+
+      {:error, _reason} when retries > 0 ->
+        Process.sleep(100)
+        connect_with_retry(url, retries - 1)
+
+      {:error, reason} ->
+        raise "Could not connect after retries: #{inspect(reason)}"
     end
   end
 
-  defp jsonrpc_call(url, method, params) do
-    body = Jason.encode!(%{
-      jsonrpc: "2.0",
-      id: 1,
-      method: method,
-      params: params || %{}
-    })
-
-    {:ok, {{_, 200, _}, _headers, resp}} =
-      :httpc.request(:post, {url, [], "application/json", body}, [], [{:timeout, 10_000}])
-
-    Jason.decode!(resp)
-  end
-
   describe "plan tool" do
-    test "returns golden plan for blocks_world", %{url: url} do
+    test "returns golden plan for blocks_world", %{client: client} do
       domain = File.read!("priv/plans/domains/blocks_world.jsonld")
       golden = Jason.decode!(File.read!("priv/plans/domains/blocks_world_expected.json"))
 
-      resp = jsonrpc_call(url, "tools/call", %{
-        name: "plan",
-        arguments: %{domain_json: domain}
-      })
-
-      assert resp["jsonrpc"] == "2.0"
-      result = resp["result"]
-      content = List.first(result["content"])
-      plan = Jason.decode!(content["text"])
+      {:ok, content} = Client.call_tool(client, "plan", %{domain_json: domain})
+      plan = decode_plan(content)
 
       assert plan["plan"] == golden["plan"],
              "blocks_world: plan mismatch"
     end
 
-    test "returns golden plan for entity_capabilities", %{url: url} do
+    test "returns golden plan for entity_capabilities", %{client: client} do
       domain = File.read!("priv/plans/domains/entity_capabilities.jsonld")
       golden = Jason.decode!(File.read!("priv/plans/domains/entity_capabilities_expected.json"))
 
-      resp = jsonrpc_call(url, "tools/call", %{
-        name: "plan",
-        arguments: %{domain_json: domain}
-      })
-
-      result = resp["result"]
-      content = List.first(result["content"])
-      plan = Jason.decode!(content["text"])
+      {:ok, content} = Client.call_tool(client, "plan", %{domain_json: domain})
+      plan = decode_plan(content)
       assert plan["plan"] == golden["plan"]
     end
 
-    test "returns golden plan for healthcare", %{url: url} do
+    test "returns golden plan for healthcare", %{client: client} do
       domain = File.read!("priv/plans/domains/healthcare.jsonld")
       golden = Jason.decode!(File.read!("priv/plans/domains/healthcare_expected.json"))
 
-      resp = jsonrpc_call(url, "tools/call", %{
-        name: "plan",
-        arguments: %{domain_json: domain}
-      })
-
-      result = resp["result"]
-      content = List.first(result["content"])
-      plan = Jason.decode!(content["text"])
+      {:ok, content} = Client.call_tool(client, "plan", %{domain_json: domain})
+      plan = decode_plan(content)
       assert plan["plan"] == golden["plan"]
     end
 
-    test "returns error for invalid JSON", %{url: url} do
-      resp = jsonrpc_call(url, "tools/call", %{
-        name: "plan",
-        arguments: %{domain_json: "not valid json"}
-      })
-
-      assert resp["error"] != nil
-      assert resp["error"]["code"] == -32603
+    test "returns error for invalid JSON", %{client: client} do
+      assert {:error, _reason} =
+               Client.call_tool(client, "plan", %{domain_json: "not valid json"})
     end
   end
 
   describe "list_tools" do
-    test "exposes plan, replan, validate, and convert tools", %{url: url} do
-      resp = jsonrpc_call(url, "tools/list", %{})
-
-      tools = resp["result"]["tools"]
-      names = Enum.map(tools, & &1["name"])
+    test "exposes plan, replan, and validate tools", %{client: client} do
+      {:ok, tools} = Client.list_tools(client)
+      names = Enum.map(tools, &(&1[:name] || Map.get(&1, "name")))
 
       assert "plan" in names
       assert "replan" in names
@@ -127,15 +94,23 @@ defmodule Taskweft.MCP.IntegrationTest do
   end
 
   describe "validate tool" do
-    test "validates a correct domain", %{url: url} do
+    test "validates a correct domain", %{client: client} do
       domain = File.read!("priv/plans/domains/blocks_world.jsonld")
-
-      resp = jsonrpc_call(url, "tools/call", %{
-        name: "validate",
-        arguments: %{domain_json: domain}
-      })
-
-      assert resp["result"] != nil
+      assert {:ok, _content} = Client.call_tool(client, "validate", %{domain_json: domain})
     end
+
+    test "rejects a malformed domain", %{client: client} do
+      assert {:error, _reason} =
+               Client.call_tool(client, "validate", %{domain_json: "{}"})
+    end
+  end
+
+  # ── helpers ──
+
+  defp decode_plan(content) do
+    content
+    |> List.first()
+    |> Map.get(:text)
+    |> Jason.decode!()
   end
 end

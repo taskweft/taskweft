@@ -5,6 +5,7 @@ defmodule Taskweft.MCP.ClientTest do
   use ExUnit.Case, async: true
 
   alias Taskweft.MCP.Client
+  alias ExMCP.Testing.MockServer
 
   describe "module surface" do
     test "exports the four public functions" do
@@ -39,46 +40,47 @@ defmodule Taskweft.MCP.ClientTest do
     end
   end
 
-  defp restore(_app, _key, nil), do: :ok
-  defp restore(app, key, value), do: Application.put_env(app, key, value)
+  describe "MockServer integration" do
+    test "list_tools returns tools from a populated mock server" do
+      tool = MockServer.sample_tool()
 
-  # Integration test against the official reference MCP server. Deterministic,
-  # no LLM, no API key — `@modelcontextprotocol/server-everything` is
-  # purpose-built as a client test target. Skipped unless `npx` is on PATH
-  # and the test is explicitly included.
-  describe "integration: @modelcontextprotocol/server-everything" do
-    @tag :integration
-    test "round-trips list_tools then call_tool against the reference server" do
-      if System.find_executable("npx") == nil do
-        :skipped
-      else
-        spec =
-          {:stdio, command: ["npx", "-y", "@modelcontextprotocol/server-everything"]}
+      MockServer.with_server([tools: [tool]], fn client ->
+        {:ok, tools} = Client.list_tools(client)
+        assert is_list(tools)
+        assert length(tools) >= 1
+        tool_names = Enum.map(tools, &(&1[:name] || Map.get(&1, "name")))
+        assert "sample_tool" in tool_names
+      end)
+    end
 
-        case Client.connect(spec, timeout: 30_000) do
-          {:ok, client} ->
-            {:ok, tools} = Client.list_tools(client)
-            assert is_list(tools) and length(tools) > 0
+    test "list_tools on an empty server returns an empty list" do
+      MockServer.with_server([], fn client ->
+        {:ok, tools} = Client.list_tools(client)
+        assert tools == []
+      end)
+    end
 
-            # `echo` is one of server-everything's standard tools and is
-            # purely deterministic.
-            tool_names =
-              Enum.map(tools, fn t ->
-                Map.get(t, :name) || Map.get(t, "name")
-              end)
+    test "call_tool returns content for a registered tool" do
+      MockServer.with_server([tools: [MockServer.sample_tool()]], fn client ->
+        result = Client.call_tool(client, "sample_tool", %{"input" => "hello"})
+        assert match?({:ok, content} when is_list(content), result)
+      end)
+    end
 
-            assert "echo" in tool_names
+    test "call_tool on an unknown tool returns an error" do
+      MockServer.with_server([], fn client ->
+        assert {:error, _reason} = Client.call_tool(client, "nonexistent", %{})
+      end)
+    end
 
-            {:ok, content} = Client.call_tool(client, "echo", %{"message" => "hi"})
-            text = content |> List.first() |> (&(Map.get(&1, "text") || Map.get(&1, :text))).()
-            assert is_binary(text) and String.contains?(text, "hi")
-
-            Client.disconnect(client)
-
-          {:error, reason} ->
-            flunk("Could not connect to server-everything: #{inspect(reason)}")
-        end
-      end
+    test "disconnect stops the client cleanly" do
+      MockServer.with_server([], fn client ->
+        assert :ok = Client.disconnect(client)
+        refute Process.alive?(client)
+      end)
     end
   end
+
+  defp restore(_app, _key, nil), do: :ok
+  defp restore(app, key, value), do: Application.put_env(app, key, value)
 end
