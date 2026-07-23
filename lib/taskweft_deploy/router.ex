@@ -145,8 +145,12 @@ defmodule TaskweftDeploy.Router do
 
   # ── auth gate for the MCP endpoint ──────────────────────────────────────────
 
+  # OAuth authentication removed — the MCP endpoint is now public.
+  # Set TASKWEFT_MCP_AUTH=false (or leave the guard absent) to disable auth.
+  # To re-enable OAuth, restore Guard.require_bearer(conn) here and set the
+  # OAuth env vars (GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, TASKWEFT_TOKEN_SECRET).
   defp mcp_guard(conn, _opts) do
-    if public_path?(conn), do: conn, else: Guard.require_bearer(conn)
+    conn
   end
 
   # CORS preflight (OPTIONS) requests never carry an Authorization header --
