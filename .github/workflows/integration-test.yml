@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 K. S. Ernest (iFire) Lee
+
+name: Integration Test
+
+on:
+  push:
+    branches: [ main, feature/** ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "28"
+          cache: 'mix'
+
+      - name: Cache build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Run tests
+        run: mix test --include property
+
+  integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "28"
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Install curl
+        run: sudo apt-get update && sudo apt-get install -y curl jq
+
+      - name: Run integration tests
+        run: |
+          bash test/integration/curl/test_integration.sh
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "28"
+          cache: 'mix'
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Run compilation
+        run: mix compile --warnings-as-errors
+
+      - name: Run dialyzer
+        run: mix dialyzer --format detailed
+        continue-on-error: true
