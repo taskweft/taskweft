@@ -1,7 +1,7 @@
 defmodule Taskweft.MixProject do
   use Mix.Project
 
-  @version "0.4.12"
+  @version "0.5.0"
 
   def project do
     [
