@@ -66,108 +66,178 @@ defmodule Taskweft.MCP.Server do
   # ---------- TOOLS ----------
 
   tool "plan",
-       "Run the IPyHOP-style HTN planner over a JSON-LD domain. Returns the plan as JSON." do
+       "Run the IPyHOP-style HTN planner over a JSON-LD, YAML-LD, or Elixir DSL domain. Returns the plan as JSON." do
     param(:domain_json, :string,
-      required: true,
-      description: """
-      A JSON-LD HTN domain object for the RECTGTN planner, passed as a
-      JSON-encoded string. The two required keys are LITERALLY "@type" and
-      "name" WITH the "@" — this is JSON-LD, not a generic "type"/"context"
-      object; "type" and "context" (no "@") are NOT recognized keys and the
-      document is rejected as if they were absent.
-      Shape:
-        "@context": {"vsekai": "https://v-sekai.org/", "domain": "vsekai:planning/domain/"}
-        "@type": "domain:Definition", "name": <string>
-        "variables": [{"name": <v>, "type": <t>, "init": {<key>: <value>, ...}}]   # state; NOT a flat "state" object
-        "actions": {<name>: {"params": [<p>...],
-                             "body": [{"pointer/set": "/path/{p}", "value": <v>}]}}   # effects; NOT pre/eff
-        "methods": {<name>: {"params": [<p>...],
-                             "alternatives": [{"name": <alt>,
-                                               "check": [{"pointer": "/path", "eq": <v>}],   # optional guard
-                                               "subtasks": [[<call>, <arg>...], ...]}]}}
-        "todo_list": [<task>, ...]
-      Every variable's "type" is mandatory — glTF Interactivity's own value-type
-      vocabulary (KHR_interactivity socket/custom-variable types) verbatim, no
-      RECTGTN extensions: "bool", "int", "float", "float2"/"float3"/"float4",
-      "float2x2"/"float3x3"/"float4x4", "ref". There is no "string" type — what
-      looks like free text (a block's position "table"/"hand", an agent name)
-      is an opaque identity reference compared for equality, i.e. "ref". There
-      is no "enum" type either — a symbolic/discrete/named-class concept is
-      capability/ReBAC membership (below), not a separate lookup-table
-      mechanism. "init" shape depends on "type": either a bare value (a
-      single-valued fluent) or an object mapping instance keys to values of
-      that type (a per-entity fluent, e.g. {"drone_1": ..., "drone_2": ...} —
-      the common case).
-      "todo_list" is GTPyHOP's own term for this exact heterogeneous list
-      (find_plan(state, todo_list)). Each <task> is ONE of three RECTGTN task kinds:
-        1. TwCall  ('E'/'T') — a call-array [<name>, <arg>...]; a bare string is NOT a call.
-        2. TwGoal  ('G')     — a todo_list entry {"goal": [{"pointer": "/var/key", "eq": <desired>}, ...]}
-                               (a conjunctive goal solved by a goal method — an ordinary "methods"
-                               entry named after the state var it targets; there is no separate
-                               "goals" key, a goal method IS an ordinary method).
-        3. TwMultiGoal ('N') — a todo_list entry {"multigoal": {<var>: {<key>: <desired>, ...}, ...}};
-                               the planner backjumps over which binding to satisfy first.
-      A "todo_list" may mix call-arrays, {"goal": [...]}, and {"multigoal": ...} objects freely.
-      Effects use "pointer/set" (the legacy "set" op is rejected). {curly} names in
-      paths/values are substituted from action/method params.
+          required: true,
+          description: """
+          A RECTGTN HTN domain. Accepts three formats (default to Elixir DSL):
 
-      Two orthogonal RECTGTN features layer on top of any task kind above:
-        * Capabilities ('R'/'C') — top-level "capabilities": {"entities": {<entity>: [<cap>,...]},
-          "graph": {"edges": [...], "definitions": {}}}. A dedicated key, not a variable:
-          structured/relational data gets its own namespaced slot, matching glTF Interactivity's
-          own convention for extension data that isn't a scalar/vector value socket. A capability
-          requirement is a hand-written {"eval": {"type": "rebac/check", "rel": <relation>,
-          "subject": <ref>, "object": <cap>}} guard step written directly into an action's own
-          body, the same mechanism every other action precondition uses. An agent lacking a
-          required capability fails that guard, so the planner tries the next alternative (or
-          reports no plan if none qualify). This is a plan-time guard, not a load-time check:
-          Loader.validate does not structurally validate the "actions" requirement shape (there
-          isn't one — it's an ordinary eval step) though it does validate "capabilities" itself.
-        * Temporal duration ('T') — a per-action "duration": "<ISO8601>" field (e.g. "PT5M", "PT1H30M").
-          Every `plan` response already includes a "temporal" block (STN consistency + per-step
-          start/end) computed from these durations; actions without a "duration" default to "PT0S".
-          Also not load-time validated — an invalid ISO 8601 string is a NIF-loader concern, not a
-          Loader.validate rejection.
+          **Elixir DSL** (preferred — ~60% fewer tokens than JSON-LD, AST-safe parse):
+              variable :pos, type: :ref, init: %{a: "table", b: "hand"}
+              action :a_pickup, params: [:block], body: [...]
+              method :move_one, params: [:block, :dest], alternatives: [...]
 
-      Minimal capability + duration example (drone_1 only holds "fly", so the planner picks the
-      "fly" alternative over "walk", which human_1 lacks):
-        {"@context":{"vsekai":"https://v-sekai.org/","domain":"vsekai:planning/domain/"},
-         "@type":"domain:Definition","name":"capability_demo",
-         "variables":[{"name":"loc","type":"ref","init":{"drone_1":"base"}}],
-         "capabilities":{"entities":{"drone_1":["fly"]}},
-         "actions":{"a_fly":{"duration":"PT5M","params":["agent","to"],
-                              "body":[{"eval":{"type":"rebac/check","rel":"HAS_CAPABILITY","subject":"{agent}","object":"fly"}},
-                                      {"pointer/set":"/loc/{agent}","value":"{to}"}]},
-                    "a_walk":{"duration":"PT30M","params":["agent","to"],
-                              "body":[{"eval":{"type":"rebac/check","rel":"HAS_CAPABILITY","subject":"{agent}","object":"walk"}},
-                                      {"pointer/set":"/loc/{agent}","value":"{to}"}]}},
-         "methods":{"move":{"params":["agent","to"],
-                             "alternatives":[{"name":"fly","subtasks":[["a_fly","{agent}","{to}"]]},
-                                             {"name":"walk","subtasks":[["a_walk","{agent}","{to}"]]}]}},
-         "todo_list":[["move","drone_1","city"]]}
-      See also the bundled taskweft://domains/entity_capabilities.jsonld (capabilities) and
-      taskweft://domains/temporal_travel.jsonld (duration-only) resources.
+          **YAML-LD** (compact, ~40% fewer tokens):
+              @context: {vsekai: https://v-sekai.org/}
+              @type: domain:Definition
+              name: my_domain
+              variables: [{name: pos, type: ref, init: {a: table, b: hand}}]
 
-      Minimal TwCall example:
-        {"@context":{"vsekai":"https://v-sekai.org/","domain":"vsekai:planning/domain/"},
-         "@type":"domain:Definition","name":"demo",
-         "variables":[{"name":"done","type":"bool","init":{"a":false,"b":false}}],
-         "actions":{"do_a":{"params":[],"body":[{"pointer/set":"/done/a","value":true}]},
-                    "do_b":{"params":[],"body":[{"pointer/set":"/done/b","value":true}]}},
-         "methods":{"top":{"params":[],"alternatives":[{"name":"seq","subtasks":[["do_a"],["do_b"]]}]}},
-         "todo_list":[["top"]]}
-      Minimal TwGoal problem (state + desired bindings, methods come from the domain):
-        {"@type":"domain:Problem","name":"switch_goal",
-         "variables":[{"name":"switch","type":"bool","init":{"x":false}}],
-         "todo_list":[{"goal":[{"pointer":"/switch/x","eq":true}]}]}
-      Minimal TwMultiGoal problem:
-        {"@type":"domain:Problem","name":"switch_multigoal",
-         "variables":[{"name":"switch","type":"bool","init":{"x":false,"y":false}}],
-         "todo_list":[{"multigoal":{"switch":{"x":true,"y":true}}}]}
-      Rejected shapes (Loader.validate): a "goal" binding missing "pointer"/"eq", or an empty
-      "goal" list; an empty {"multigoal":{}} or a multigoal var bound to a non-object; an object
-      task that is neither a {"multigoal": ...} nor a {"goal": ...} entry.
-      """
+          **JSON-LD** (full Linked Data):
+              {"@context": {...}, "@type": "domain:Definition", "name": "...", ...}
+
+          See format param to choose which format you're writing. Defaults to \"dsl\".
+
+          ── State variables ──
+          Typed per-entity state. Type is mandatory: bool, int, float, float2/3/4,
+          float2x2/3x3/4x4, ref. ref values are opaque identity references (e.g.
+          "table", "hand", agent names). No string/enum type — symbolic concepts
+          use ref or capability/ReBAC membership.
+
+              variable :pos, type: :ref, init: %{a: "table", b: "hand", c: "table"}
+              variable :clear, type: :bool, init: %{a: true, b: false, c: true}
+              variable :holding, type: :bool, init: %{hand: false}
+
+          ── Actions ──
+          Primitive operations. Body steps are pointer/set (effects) or eval
+          (guards/preconditions). Params are substituted via {curly} syntax.
+
+              action :a_pickup,
+                params: [:block],
+                body: [
+                  condition(:math/eq, pointer_get("/pos/{block}"), "table"),
+                  condition(:math/eq, pointer_get("/clear/{block}"), true),
+                  pointer_set("/pos/{block}", "hand"),
+                  pointer_set("/clear/{block}", false),
+                  pointer_set("/holding/hand", "{block}")
+                ]
+
+          Actions may carry a temporal duration (ISO 8601):
+
+              action :a_fly,
+                params: [:agent, :to_loc],
+                duration: "PT5M",
+                body: [pointer_set("/loc/{agent}", "{to_loc}")]
+
+          ── Methods (compound tasks) ──
+          Decomposed via alternatives. Each alternative is a named sequence of
+          subtask calls (to actions or other methods). Optional check guards.
+
+              method :move_one,
+                params: [:block, :dest],
+                alternatives: [
+                  alt(:get_and_put, subtasks: [[:get, "{block}"], [:put, "{block}", "{dest}"]])
+                ]
+
+              method :get,
+                params: [:block],
+                alternatives: [
+                  alt(:pickup_from_table,
+                    check: [condition(:math/eq, pointer_get("/pos/{block}"), "table")],
+                    subtasks: [[:a_pickup, "{block}"]]
+                  ),
+                  alt(:unstack, subtasks: [[:a_unstack, "{block}"]])
+                ]
+
+          ── Three task kinds (todo_list) ──
+          todo_list can mix all three. A todo_list entry is either a call array
+          [name, arg...] (TwCall), a goal {goal: [{pointer, eq}, ...]} (TwGoal),
+          or a multigoal {multigoal: {var: {key: val}}} (TwMultiGoal):
+
+              # TwCall — call an action or method directly
+              todo_list [[:move_one, :a, :table], [:move_one, :c, :b]]
+
+              # TwGoal — desired state bindings, solved via goal methods
+              # (methods named after the state var they target)
+              todo_list [goal: [pointer: "/switch/x", eq: true]]
+
+              # TwMultiGoal — planner backjumps over which binding to satisfy first
+              todo_list [multigoal: %{switch: %{x: true, y: true}}]
+
+              # Mixed: calls + goals + multigoals in one list
+              todo_list [
+                [:move_one, :a, :table],
+                %{goal: [%{pointer: "/switch/x", eq: true}]}
+              ]
+
+          ── Capabilities & ReBAC ──
+          Entities hold capabilities via a ReBAC (Relationship-Based Access
+          Control) graph. Action guards check HAS_CAPABILITY (or any composed
+          relation) against the graph. Relations: HAS_CAPABILITY, CONTROLS, OWNS,
+          IS_MEMBER_OF, DELEGATED_TO, SUPERVISOR_OF, PARTNER_OF, CAN_ENTER,
+          CAN_INSTANCE.
+
+              capabilities %{
+                entities: %{drone_1: [:fly], human_1: [:walk]},
+                graph: [
+                  %{subject: "alice", rel: "IS_MEMBER_OF", object: "flight_team"},
+                  %{subject: "flight_team", rel: "HAS_CAPABILITY", object: "fly"}
+                ]
+              }
+
+              # ReBAC guard: alice qualifies via IS_MEMBER_OF -> HAS_CAPABILITY chain
+              action :a_fly,
+                params: [:agent, :to],
+                duration: "PT5M",
+                body: [
+                  rebac_check("{agent}", "HAS_CAPABILITY", "fly"),
+                  pointer_set("/loc/{agent}", "{to}")
+                ]
+
+          ── Full example: multi-agent with capabilities + temporal ──
+
+              variable :loc, type: :ref, init: %{drone_1: "base", boat_1: "harbor", human_1: "base"}
+
+              action :a_fly, params: [:agent, :to],
+                duration: "PT5M",
+                body: [
+                  rebac_check("{agent}", "HAS_CAPABILITY", "fly"),
+                  pointer_set("/loc/{agent}", "{to}")
+                ]
+
+              action :a_swim, params: [:agent, :to],
+                duration: "PT20M",
+                body: [
+                  rebac_check("{agent}", "HAS_CAPABILITY", "swim"),
+                  pointer_set("/loc/{agent}", "{to}")
+                ]
+
+              action :a_walk, params: [:agent, :to],
+                duration: "PT30M",
+                body: [
+                  rebac_check("{agent}", "HAS_CAPABILITY", "walk"),
+                  pointer_set("/loc/{agent}", "{to}")
+                ]
+
+              method :m_move, params: [:agent, :to],
+                alternatives: [
+                  alt(:fly, subtasks: [[:a_fly, "{agent}", "{to}"]]),
+                  alt(:swim, subtasks: [[:a_swim, "{agent}", "{to}"]]),
+                  alt(:walk, subtasks: [[:a_walk, "{agent}", "{to}"]])
+                ]
+
+              capabilities %{
+                entities: %{
+                  drone_1: [:fly], drone_2: [:fly],
+                  boat_1: [:swim], boat_2: [:swim],
+                  human_1: [:walk], human_2: [:walk],
+                  amphibious_1: [:swim, :walk]
+                }
+              }
+
+              todo_list [[:m_move, :drone_1, :city]]
+
+          The planner only tries alternatives whose capability guard the agent
+          satisfies. drone_1 has [:fly] → tries fly (PT5M). human_1 has [:walk]
+          → tries walk (PT30M). amphibious_1 has [:swim, :walk] → tries swim
+          first (PT20M), then walk (PT30M) if swim fails.
+
+          The plan response includes a temporal block with STN consistency:
+              {"temporal": {"consistent": true, "total": "PT5M",
+                "steps": [{"action": "a_fly", "start": "PT0S", "end": "PT5M"}]}}
+
+          See also: https://github.com/taskweft/taskweft/blob/main/docs/rectgtn.md
+          """
     )
 
     param(:explain, :boolean,
@@ -176,11 +246,19 @@ defmodule Taskweft.MCP.Server do
         "When true, include an explain tree for successful plans and return structured no_plan diagnostics instead of a bare failure token."
     )
 
+    param(:format, :string,
+      required: false,
+      default: "dsl",
+      description:
+        "Input format: \"dsl\" (Elixir DSL, default), \"yaml\" (YAML-LD), or \"json\" (JSON-LD)."
+    )
+
     run(fn args, state ->
       guarded(state, fn ->
-        domain_json = Map.fetch!(args, :domain_json)
-        explain = Map.get(args, :explain, false)
-        plan_with_optional_explain(domain_json, explain)
+        with {:ok, domain_json} <- parse_domain_input(Map.fetch!(args, :domain_json), Map.get(args, :format, "dsl")),
+             explain = Map.get(args, :explain, false) do
+          plan_with_optional_explain(domain_json, explain)
+        end
       end)
     end)
   end
@@ -204,13 +282,19 @@ defmodule Taskweft.MCP.Server do
       description: "Index of the failed step; -1 for a full replan."
     )
 
+    param(:format, :string,
+      required: false,
+      default: "dsl",
+      description:
+        "Input format: \"dsl\" (Elixir DSL, default), \"yaml\" (YAML-LD), or \"json\" (JSON-LD)."
+    )
+
     run(fn args, state ->
       guarded(state, fn ->
-        domain_json = Map.fetch!(args, :domain_json)
-        plan_arg = Map.fetch!(args, :plan_json)
-        fail_step = Map.get(args, :fail_step, -1)
-
-        with {:ok, steps} <- decode_plan(plan_arg),
+        with {:ok, domain_json} <- parse_domain_input(Map.fetch!(args, :domain_json), Map.get(args, :format, "dsl")),
+             plan_arg = Map.fetch!(args, :plan_json),
+             fail_step = Map.get(args, :fail_step, -1),
+             {:ok, steps} <- decode_plan(plan_arg),
              :ok <- validate_fail_step(steps, fail_step),
              :ok <- validate_for_replan(domain_json) do
           # tw_replan wants a bare top-level step array; the {"plan":[...]} envelope
@@ -223,17 +307,25 @@ defmodule Taskweft.MCP.Server do
   end
 
   tool "validate",
-       "Validate a JSON-LD domain/problem document without planning. Returns the normalized document JSON on success, or a validation error. plan/replan do not validate — call this first if you want to check a document's shape without also attempting to solve it." do
+       "Validate a JSON-LD, YAML-LD, or Elixir DSL domain/problem document without planning. Returns the normalized document JSON on success, or a validation error. plan/replan do not validate — call this first if you want to check a document's shape without also attempting to solve it." do
     param(:domain_json, :string,
       required: true,
       description:
-        "JSON-encoded JSON-LD domain object (same format as the plan tool's domain_json)."
+        "RECTGTN domain (same format as the plan tool's domain_json)."
+    )
+
+    param(:format, :string,
+      required: false,
+      default: "dsl",
+      description:
+        "Input format: \"dsl\" (Elixir DSL, default), \"yaml\" (YAML-LD), or \"json\" (JSON-LD)."
     )
 
     run(fn args, state ->
       guarded(state, fn ->
-        domain_json = Map.fetch!(args, :domain_json)
-        validate_domain(domain_json)
+        with {:ok, domain_json} <- parse_domain_input(Map.fetch!(args, :domain_json), Map.get(args, :format, "dsl")) do
+          validate_domain(domain_json)
+        end
       end)
     end)
   end
@@ -382,6 +474,42 @@ defmodule Taskweft.MCP.Server do
   end
 
   # ---------- HELPERS ----------
+
+  # Accept JSON, YAML-LD, or Elixir DSL as domain input. Try JSON first
+  # (fast path), then YAML-LD, then Elixir DSL (compile through the
+  # Taskweft.Domain.Builder macro system).
+  #
+  # The Elixir DSL path detects DSL keywords in the input and compiles
+  # them through Code.compile_string/1 with Taskweft.Domain.Builder.
+  defp parse_domain_input(raw, format \ "dsl")
+
+  defp parse_domain_input(raw, "json") do
+    case Jason.decode(raw) do
+      {:ok, _map} -> {:ok, raw}
+      {:error, reason} -> {:error, "invalid JSON-LD: #{reason}"}
+    end
+  end
+
+  defp parse_domain_input(raw, "yaml") do
+    case YamlElixir.read_from_string(raw) do
+      {:ok, parsed} when is_map(parsed) -> {:ok, Jason.encode!(parsed)}
+      {:ok, _} -> {:error, "YAML-LD input must decode to a map (got a list or scalar)"}
+      {:error, reason} -> {:error, "invalid YAML-LD: #{reason}"}
+    end
+  end
+
+  defp parse_domain_input(raw, "dsl") do
+    Taskweft.Domain.Builder.compile_domain(raw)
+  end
+
+  defp parse_domain_input(_raw, other) do
+    {:error, "unknown format: #{other}. Use "dsl", "yaml", or "json"."}
+  end
+
+
+  defp compile_dsl(source) do
+    Taskweft.Domain.Builder.compile_domain(source)
+  end
 
   # Same rationale as plan_with_optional_explain/2: surface a schema error
   # instead of letting a malformed domain reach the NIF as a bare
