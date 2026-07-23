@@ -49,9 +49,13 @@ defmodule Taskweft.MCP.IntegrationTest do
   describe "plan tool" do
     test "returns golden plan for blocks_world", %{client: client} do
       domain = File.read!("priv/plans/domains/blocks_world.jsonld")
-      golden = Jason.decode!(File.read!("priv/plans/domains/blocks_world_expected.json"))
+      problem = File.read!("priv/plans/problems/blocks_world_1a.jsonld")
+      golden = Jason.decode!(File.read!("priv/plans/expected/blocks_world__blocks_world_1a_expected.json"))
 
-      {:ok, content} = Client.call_tool(client, "plan", %{domain_json: domain})
+      merged =
+        Jason.decode!(domain) |> Map.merge(Jason.decode!(problem)) |> Jason.encode!()
+
+      {:ok, content} = Client.call_tool(client, "plan", %{domain_json: merged})
       plan = decode_plan(content)
 
       assert plan["plan"] == golden["plan"],
@@ -60,18 +64,26 @@ defmodule Taskweft.MCP.IntegrationTest do
 
     test "returns golden plan for entity_capabilities", %{client: client} do
       domain = File.read!("priv/plans/domains/entity_capabilities.jsonld")
-      golden = Jason.decode!(File.read!("priv/plans/domains/entity_capabilities_expected.json"))
+      problem = File.read!("priv/plans/problems/entity_caps_drone.jsonld")
+      golden = Jason.decode!(File.read!("priv/plans/expected/entity_capabilities__entity_caps_drone_expected.json"))
 
-      {:ok, content} = Client.call_tool(client, "plan", %{domain_json: domain})
+      merged =
+        Jason.decode!(domain) |> Map.merge(Jason.decode!(problem)) |> Jason.encode!()
+
+      {:ok, content} = Client.call_tool(client, "plan", %{domain_json: merged})
       plan = decode_plan(content)
       assert plan["plan"] == golden["plan"]
     end
 
     test "returns golden plan for healthcare", %{client: client} do
       domain = File.read!("priv/plans/domains/healthcare.jsonld")
-      golden = Jason.decode!(File.read!("priv/plans/domains/healthcare_expected.json"))
+      problem = File.read!("priv/plans/problems/healthcare_one.jsonld")
+      golden = Jason.decode!(File.read!("priv/plans/expected/healthcare__healthcare_one_expected.json"))
 
-      {:ok, content} = Client.call_tool(client, "plan", %{domain_json: domain})
+      merged =
+        Jason.decode!(domain) |> Map.merge(Jason.decode!(problem)) |> Jason.encode!()
+
+      {:ok, content} = Client.call_tool(client, "plan", %{domain_json: merged})
       plan = decode_plan(content)
       assert plan["plan"] == golden["plan"]
     end

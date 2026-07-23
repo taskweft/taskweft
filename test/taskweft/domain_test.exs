@@ -5,59 +5,110 @@ defmodule Taskweft.DomainTest do
   use ExUnit.Case, async: true
 
   @domains_path Path.expand("priv/plans/domains", File.cwd!())
-
-  for f <- File.ls!(@domains_path) |> Enum.filter(&String.ends_with?(&1, ".jsonld")) |> Enum.sort() do
-    name = String.replace(f, ".jsonld", "")
-    json = File.read!(Path.join(@domains_path, f))
-    golden_path = Path.join(@domains_path, "#{name}_expected.json")
-    golden = Jason.decode!(File.read!(golden_path))
-
-    @tag :domain
-    test "#{name} produces expected plan and solution tree" do
-      plan = Taskweft.NIF.plan(unquote(json))
-      plan_list = Jason.decode!(plan)
-
-      {:ok, expl} = Taskweft.plan_explain(unquote(json))
-      ex = Jason.decode!(expl)
-      tree = get_in(ex, ["explain", "solution_tree"]) || []
-
-      expected = unquote(Macro.escape(golden))
-
-      assert length(plan_list) == expected["steps"],
-             "#{unquote(name)}: expected #{expected["steps"]} steps, got #{length(plan_list)}"
-
-      assert length(tree) == expected["tree_nodes"],
-             "#{unquote(name)}: expected #{expected["tree_nodes"]} tree nodes, got #{length(tree)}"
-
-      assert plan_list == expected["plan"],
-             "#{unquote(name)}: plan mismatch"
-    end
-  end
-
   @problems_path Path.expand("priv/plans/problems", File.cwd!())
+  @expected_path Path.expand("priv/plans/expected", File.cwd!())
 
-  # Representative domain+problem pairs
+  # Each tuple: {domain_name, problem_name}
+  # Golden file: priv/plans/expected/{domain}__{problem}_expected.json
   @pairs [
-    {"blocks_world", "blocks_world_1a", 6},
-    {"blocks_world", "blocks_world_goal", 6},
-    {"entity_capabilities", "entity_caps_drone", 1},
-    {"healthcare", "healthcare_one", 4},
-    {"simple_travel", "simple_travel_one", 1},
-    {"temporal_travel", "temporal_travel_one", 1}
+    {"blocks_world", "blocks_world_1a"},
+    {"blocks_world", "blocks_world_1b"},
+    {"blocks_world", "blocks_world_2a"},
+    {"blocks_world", "blocks_world_2b"},
+    {"blocks_world", "blocks_world_3"},
+    {"blocks_world", "blocks_world_goal"},
+    {"blocks_world", "blocks_world_multigoal"},
+    {"entity_capabilities", "entity_caps_amphibious"},
+    {"entity_capabilities", "entity_caps_boat"},
+    {"entity_capabilities", "entity_caps_drone"},
+    {"entity_capabilities", "entity_caps_goal"},
+    {"entity_capabilities", "entity_caps_human"},
+    {"entity_capabilities", "entity_caps_multi"},
+    {"healthcare", "healthcare_one"},
+    {"healthcare", "healthcare_shared"},
+    {"healthcare", "healthcare_two"},
+    {"job_shop_scheduling", "job_shop_both"},
+    {"job_shop_scheduling", "job_shop_one"},
+    {"rescue", "rescue_move"},
+    {"rescue", "rescue_survey"},
+    {"robosub", "robosub_full_mission"},
+    {"robosub", "robosub_partial"},
+    {"simple_travel", "simple_travel_goal"},
+    {"simple_travel", "simple_travel_one"},
+    {"simple_travel", "simple_travel_two"},
+    {"temporal_travel", "temporal_travel_goal"},
+    {"temporal_travel", "temporal_travel_one"},
+    {"temporal_travel", "temporal_travel_two"},
+    {"trust_topology_audit", "trust_topology_audit_curvenet"},
+    {"service_bringup", "chi176_local_infra_bringup"},
   ]
 
-  for {domain, problem, expected_steps} <- @pairs do
-    d = File.read!(Path.join(@domains_path, "#{domain}.jsonld"))
-    p = File.read!(Path.join(@problems_path, "#{problem}.jsonld"))
+  # Standalone domains with no paired problems — tested from domain alone
+  @standalone ["meta_loader"]
+
+  for {domain_name, problem_name} <- @pairs do
+    golden_path = Path.join(@expected_path, "#{domain_name}__#{problem_name}_expected.json")
+
+    d = File.read!(Path.join(@domains_path, "#{domain_name}.jsonld"))
+    p = File.read!(Path.join(@problems_path, "#{problem_name}.jsonld"))
     merged =
       Jason.decode!(d) |> Map.merge(Jason.decode!(p)) |> Jason.encode!()
 
+    golden = Jason.decode!(File.read!(golden_path))
+
     @tag :domain
-    test "#{domain} + #{problem} produces #{expected_steps} steps" do
-      plan = Taskweft.NIF.plan(unquote(merged))
-      steps = length(Jason.decode!(plan))
-      assert steps == unquote(expected_steps),
-             "#{unquote(domain)}+#{unquote(problem)}: expected #{unquote(expected_steps)} steps, got #{steps}"
+    test "#{domain_name} + #{problem_name} matches plan and solution tree" do
+      {:ok, result_json} = Taskweft.plan_explain(unquote(merged))
+      result = Jason.decode!(result_json)
+
+      plan = result["plan"] || []
+      explain = result["explain"] || %{}
+      tree = get_in(explain, ["solution_tree"]) || []
+
+      expected = unquote(Macro.escape(golden))
+
+      assert length(plan) == expected["steps"],
+             "#{unquote(domain_name)}+#{unquote(problem_name)}: expected #{expected["steps"]} steps, got #{length(plan)}"
+
+      assert length(tree) == expected["tree_nodes"],
+             "#{unquote(domain_name)}+#{unquote(problem_name)}: expected #{expected["tree_nodes"]} tree nodes, got #{length(tree)}"
+
+      assert plan == expected["plan"],
+             "#{unquote(domain_name)}+#{unquote(problem_name)}: plan mismatch"
+
+      assert tree == expected["tree"],
+             "#{unquote(domain_name)}+#{unquote(problem_name)}: solution tree mismatch"
+    end
+  end
+
+  for domain_name <- @standalone do
+    golden_path = Path.join(@expected_path, "#{domain_name}_expected.json")
+    golden = Jason.decode!(File.read!(golden_path))
+
+    json = File.read!(Path.join(@domains_path, "#{domain_name}.jsonld"))
+
+    @tag :domain
+    test "#{domain_name} (standalone) matches plan and solution tree" do
+      {:ok, result_json} = Taskweft.plan_explain(unquote(json))
+      result = Jason.decode!(result_json)
+
+      plan = result["plan"] || []
+      explain = result["explain"] || %{}
+      tree = get_in(explain, ["solution_tree"]) || []
+
+      expected = unquote(Macro.escape(golden))
+
+      assert length(plan) == expected["steps"],
+             "#{unquote(domain_name)}: expected #{expected["steps"]} steps, got #{length(plan)}"
+
+      assert length(tree) == expected["tree_nodes"],
+             "#{unquote(domain_name)}: expected #{expected["tree_nodes"]} tree nodes, got #{length(tree)}"
+
+      assert plan == expected["plan"],
+             "#{unquote(domain_name)}: plan mismatch"
+
+      assert tree == expected["tree"],
+             "#{unquote(domain_name)}: solution tree mismatch"
     end
   end
 end
