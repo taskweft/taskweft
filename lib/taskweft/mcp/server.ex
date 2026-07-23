@@ -23,7 +23,7 @@ defmodule Taskweft.MCP.Server do
 
   | Tool | Description |
   |------|-------------|
-  | `plan` | Run the HTN planner over an Elixir DSL domain (variables, actions, methods, capabilities, temporal duration) |
+  | `plan` | Run the HTN planner over a JSON-LD domain (TwCall / TwGoal / TwMultiGoal, capabilities, duration) |
   | `replan` | Recover from a failed plan step |
 
   `check_temporal` is not exposed as its own tool; every `plan` response
@@ -66,16 +66,27 @@ defmodule Taskweft.MCP.Server do
   # ---------- TOOLS ----------
 
   tool "plan",
-       "Run the IPyHOP-style HTN planner over an Elixir DSL domain. See docs/rectgtn.md for the full RECTGTN feature reference." do
+       "Run the IPyHOP-style HTN planner over a JSON-LD, YAML-LD, or Elixir DSL domain. Returns the plan as JSON." do
     param(:domain_json, :string,
       required: true,
       description: """
-      A RECTGTN HTN domain defined in Elixir DSL syntax (AST-safe, no runtime code execution):
+      A RECTGTN HTN domain. Accepts three formats (default to Elixir DSL):
+
+      **Elixir DSL** (preferred — ~60% fewer tokens than JSON-LD, AST-safe parse):
           variable :pos, type: :ref, init: %{a: "table", b: "hand"}
           action :a_pickup, params: [:block], body: [...]
           method :move_one, params: [:block, :dest], alternatives: [...]
 
-      Elixir DSL only. See docs/rectgtn.md for the complete RECTGTN feature reference.
+      **YAML-LD** (compact, ~40% fewer tokens):
+          @context: {vsekai: https://v-sekai.org/}
+          @type: domain:Definition
+          name: my_domain
+          variables: [{name: pos, type: ref, init: {a: table, b: hand}}]
+
+      **JSON-LD** (full Linked Data):
+          {"@context": {...}, "@type": "domain:Definition", "name": "...", ...}
+
+      See format param to choose which format you're writing. Defaults to \"dsl\".
 
       ── State variables ──
       Typed per-entity state. Type is mandatory: bool, int, float, float2/3/4,
@@ -235,10 +246,17 @@ defmodule Taskweft.MCP.Server do
         "When true, include an explain tree for successful plans and return structured no_plan diagnostics instead of a bare failure token."
     )
 
+    param(:format, :string,
+      required: false,
+      default: "dsl",
+      description:
+        "Input format: \"dsl\" (Elixir DSL, default), \"yaml\" (YAML-LD), or \"json\" (JSON-LD)."
+    )
+
     run(fn args, state ->
       guarded(state, fn ->
         with {:ok, domain_json} <-
-               parse_domain_input(Map.fetch!(args, :domain_json)),
+               parse_domain_input(Map.fetch!(args, :domain_json), Map.get(args, :format, "dsl")),
              explain = Map.get(args, :explain, false) do
           plan_with_optional_explain(domain_json, explain)
         end
@@ -247,10 +265,11 @@ defmodule Taskweft.MCP.Server do
   end
 
   tool "replan",
-       "Replan after a step failure. Pass the original Elixir DSL domain, the previously-returned plan, and the index of the failed step (-1 for full replan)." do
+       "Replan after a step failure. Pass the original domain, the previously-returned plan, and the index of the failed step (-1 for full replan)." do
     param(:domain_json, :string,
       required: true,
-      description: "Elixir DSL domain definition (same format as the plan tool's domain_json)."
+      description:
+        "JSON-encoded JSON-LD domain object (same format as the plan tool's domain_json)."
     )
 
     param(:plan_json, :object,
@@ -264,10 +283,17 @@ defmodule Taskweft.MCP.Server do
       description: "Index of the failed step; -1 for a full replan."
     )
 
+    param(:format, :string,
+      required: false,
+      default: "dsl",
+      description:
+        "Input format: \"dsl\" (Elixir DSL, default), \"yaml\" (YAML-LD), or \"json\" (JSON-LD)."
+    )
+
     run(fn args, state ->
       guarded(state, fn ->
         with {:ok, domain_json} <-
-               parse_domain_input(Map.fetch!(args, :domain_json)),
+               parse_domain_input(Map.fetch!(args, :domain_json), Map.get(args, :format, "dsl")),
              plan_arg = Map.fetch!(args, :plan_json),
              fail_step = Map.get(args, :fail_step, -1),
              {:ok, steps} <- decode_plan(plan_arg),
@@ -283,69 +309,24 @@ defmodule Taskweft.MCP.Server do
   end
 
   tool "validate",
-       "Validate an Elixir DSL domain/problem document without planning. Returns the normalized document JSON on success, or a validation error. plan/replan do not validate — call this first if you want to check a document's shape without also attempting to solve it." do
+       "Validate a JSON-LD, YAML-LD, or Elixir DSL domain/problem document without planning. Returns the normalized document JSON on success, or a validation error. plan/replan do not validate — call this first if you want to check a document's shape without also attempting to solve it." do
     param(:domain_json, :string,
       required: true,
-      description: "Elixir DSL domain definition (same format as the plan tool's domain_json)."
+      description: "RECTGTN domain (same format as the plan tool's domain_json)."
+    )
+
+    param(:format, :string,
+      required: false,
+      default: "dsl",
+      description:
+        "Input format: \"dsl\" (Elixir DSL, default), \"yaml\" (YAML-LD), or \"json\" (JSON-LD)."
     )
 
     run(fn args, state ->
       guarded(state, fn ->
         with {:ok, domain_json} <-
-               parse_domain_input(Map.fetch!(args, :domain_json)) do
+               parse_domain_input(Map.fetch!(args, :domain_json), Map.get(args, :format, "dsl")) do
           validate_domain(domain_json)
-        end
-      end)
-    end)
-  end
-
-  tool "convert",
-       "Convert between Elixir DSL and YAML-LD formats." do
-    param(:domain, :string,
-      required: true,
-      description: "The domain string to convert."
-    )
-
-    param(:to, :string,
-      required: false,
-      default: "yaml",
-      description: ~s[Target format: "yaml" (DSL -> YAML-LD, default) or "dsl" (YAML-LD -> DSL).]
-    )
-
-    run(fn args, state ->
-      guarded(state, fn ->
-        domain = Map.fetch!(args, :domain)
-        target = Map.get(args, :to, "yaml")
-
-        case target do
-          "dsl" ->
-            case Taskweft.Domain.SafeParser.parse(domain) do
-              {:ok, json} ->
-                with {:ok, map} <- Jason.decode(json) do
-                  {:ok, Taskweft.Domain.ToDSL.domain_to_dsl(map)}
-                else
-                  {:error, reason} -> {:error, "Internal decode: #{reason}"}
-                end
-
-              {:error, _} = err ->
-                err
-            end
-
-          "yaml" ->
-            case Taskweft.Domain.SafeParser.parse(domain) do
-              {:ok, json} ->
-                with {:ok, map} <- Jason.decode(json) do
-                  {:ok, encode_yaml(map)}
-                else
-                  {:error, reason} -> {:error, "Internal decode: #{reason}"}
-                end
-
-              {:error, _} = err ->
-                err
-            end
-
-          other ->
-            {:error, ~s(unknown target format: "#{other}". Use "yaml" or "dsl".)}
         end
       end)
     end)
@@ -365,7 +346,7 @@ defmodule Taskweft.MCP.Server do
     end)
   end
 
-  resource_template "taskweft://domains/{file}", "RECTGTN HTN domain" do
+  resource_template "taskweft://domains/{file}", "JSON-LD HTN domain" do
     title("HTN domain")
     mime_type("application/ld+json")
     param(:file, :string)
@@ -373,7 +354,7 @@ defmodule Taskweft.MCP.Server do
     read(fn %{file: file}, state -> read_jsonld("taskweft://domains/#{file}", state) end)
   end
 
-  resource_template "taskweft://problems/{file}", "RECTGTN HTN problem" do
+  resource_template "taskweft://problems/{file}", "JSON-LD HTN problem" do
     title("HTN problem")
     mime_type("application/ld+json")
     param(:file, :string)
@@ -409,7 +390,7 @@ defmodule Taskweft.MCP.Server do
       problem = args[:problem] || "<problem>.jsonld"
 
       message(
-        "Read taskweft://domains/#{domain} and taskweft://problems/#{problem}, then call the `plan` tool with the combined Elixir DSL domain.",
+        "Read taskweft://domains/#{domain} and taskweft://problems/#{problem}, then call the `plan` tool with the combined JSON-LD domain.",
         state
       )
     end)
@@ -496,9 +477,35 @@ defmodule Taskweft.MCP.Server do
 
   # ---------- HELPERS ----------
 
-  # Parse an Elixir DSL domain string. AST-safe, no runtime code execution.
-  defp parse_domain_input(raw) do
-    Taskweft.Domain.SafeParser.parse(raw)
+  # Accept JSON, YAML-LD, or Elixir DSL as domain input. Try JSON first
+  # (fast path), then YAML-LD, then Elixir DSL (compile through the
+  # Taskweft.Domain.Builder macro system).
+  #
+  # The Elixir DSL path detects DSL keywords in the input and compiles
+  # them through Code.compile_string/1 with Taskweft.Domain.Builder.
+  defp parse_domain_input(raw, format)
+
+  defp parse_domain_input(raw, "json") do
+    case Jason.decode(raw) do
+      {:ok, _map} -> {:ok, raw}
+      {:error, reason} -> {:error, "invalid JSON-LD: #{reason}"}
+    end
+  end
+
+  defp parse_domain_input(raw, "yaml") do
+    case YamlElixir.read_from_string(raw) do
+      {:ok, parsed} when is_map(parsed) -> {:ok, Jason.encode!(parsed)}
+      {:ok, _} -> {:error, "YAML-LD input must decode to a map (got a list or scalar)"}
+      {:error, reason} -> {:error, "invalid YAML-LD: #{reason}"}
+    end
+  end
+
+  defp parse_domain_input(raw, "dsl") do
+    Taskweft.Domain.Builder.compile_domain(raw)
+  end
+
+  defp parse_domain_input(_raw, other) do
+    {:error, ~s(unknown format: #{other}. Use "dsl", "yaml", or "json".)}
   end
 
   # Same rationale as plan_with_optional_explain/2: surface a schema error
@@ -511,85 +518,7 @@ defmodule Taskweft.MCP.Server do
     end
   end
 
-  defp validate_domain(json) do
-    case Taskweft.JSONLD.Loader.load_string(json) do
-      {:ok, result_json} ->
-        with {:ok, domain} <- Jason.decode(result_json) do
-          {:ok, Taskweft.Domain.ToDSL.domain_to_dsl(domain)}
-        else
-          _ -> {:ok, result_json}
-        end
-
-      {:error, _} = err ->
-        err
-    end
-  end
-
-  # Minimal YAML encoder for the convert tool. Only handles the
-  # subset of YAML that RECTGTN domain maps produce.
-  defp encode_yaml(value), do: encode_yaml(value, 0)
-
-  defp encode_yaml(value, indent) when is_map(value) do
-    prefix = String.duplicate("  ", indent)
-
-    lines =
-      Enum.map(value, fn {k, v} ->
-        case v do
-          m when is_map(m) ->
-            "#{prefix}#{k}:\n" <> encode_yaml(m, indent + 1)
-
-          l when is_list(l) ->
-            "#{prefix}#{k}:\n" <> encode_yaml_list(l, indent + 1)
-
-          _ ->
-            "#{prefix}#{k}: #{encode_yaml_scalar(v)}\n"
-        end
-      end)
-
-    Enum.join(lines, "")
-  end
-
-  defp encode_yaml(list, indent) when is_list(list) do
-    encode_yaml_list(list, indent)
-  end
-
-  defp encode_yaml_list(list, indent) do
-    prefix = String.duplicate("  ", indent)
-
-    lines =
-      Enum.map(list, fn item ->
-        case item do
-          m when is_map(m) ->
-            "#{prefix}- " <> first_line(m) <> "\n" <> encode_yaml(m, indent + 1)
-
-          l when is_list(l) ->
-            elements = Enum.map(l, &encode_yaml_scalar/1) |> Enum.join(", ")
-            "#{prefix}- [#{elements}]\n"
-
-          _ ->
-            "#{prefix}- #{encode_yaml_scalar(item)}\n"
-        end
-      end)
-
-    Enum.join(lines, "")
-  end
-
-  defp first_line(map) do
-    case Enum.at(Enum.to_list(map), 0) do
-      {k, v} when is_binary(v) -> "#{k}: #{v}"
-      {k, v} when is_integer(v) -> "#{k}: #{v}"
-      {k, v} when is_boolean(v) -> "#{k}: #{v}"
-      {k, v} when is_atom(v) -> "#{k}: #{v}"
-      _ -> ""
-    end
-  end
-
-  defp encode_yaml_scalar(val) when is_binary(val), do: val
-  defp encode_yaml_scalar(val) when is_integer(val), do: to_string(val)
-  defp encode_yaml_scalar(val) when is_float(val), do: to_string(val)
-  defp encode_yaml_scalar(true), do: "true"
-  defp encode_yaml_scalar(false), do: "false"
-  defp encode_yaml_scalar(val) when is_atom(val), do: Atom.to_string(val)
+  defp validate_domain(json), do: Taskweft.JSONLD.Loader.load_string(json)
 
   # `fail_step = -1` means full replan (no completed prefix). Any other value must
   # point at a real index in the plan; otherwise the planner silently treats it as
