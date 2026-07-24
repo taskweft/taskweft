@@ -37,17 +37,15 @@ defmodule Taskweft.MCP.Server do
     )
 
     handler(fn args, state ->
-      guarded(state, fn ->
-        with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
-             {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
-             plan_json <- Jason.encode!(Map.get(compiled, :plan) || []),
-             explain_json <- Jason.encode!(Map.get(compiled, :explain_tree) || %{}),
-             {:ok, result} <- Taskweft.plan_with_optional_explain(plan_json, explain_json) do
-          {:ok, %JasonCoder.result()}
-        else
-          {:error, reason} -> {:ok, %JasonCoder.error{message: reason}}
-        end
-      end)
+      with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+           {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
+           plan_json <- Jason.encode!(Map.get(compiled, :plan) || []),
+           explain_json <- Jason.encode!(Map.get(compiled, :explain_tree) || %{}),
+           {:ok, result} <- Taskweft.plan_with_optional_explain(plan_json, explain_json) do
+        {:ok, %{content: Jason.encode!(result)}}
+      else
+        {:error, reason} -> {:ok, %{content: Jason.encode!(%{error: reason})}}
+      end
     end)
   end
 
@@ -74,17 +72,15 @@ defmodule Taskweft.MCP.Server do
     )
 
     handler(fn args, state ->
-      guarded(state, fn ->
-        with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
-             {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
-             steps <- Jason.decode!(args[:plan_json]),
-             fail_step <- Map.get(args, :fail_step, -1),
-             {:ok, result} <- Taskweft.replan(steps, Jason.encode!(compiled), fail_step) do
-          {:ok, %JasonCoder.result()}
-        else
-          {:error, reason} -> {:ok, %JasonCoder.error{message: reason}}
-        end
-      end)
+      with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+           {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
+           steps <- Jason.decode!(args[:plan_json]),
+           fail_step <- Map.get(args, :fail_step, -1),
+           {:ok, result} <- Taskweft.replan(steps, Jason.encode!(compiled), fail_step) do
+        {:ok, %{content: Jason.encode!(result)}}
+      else
+        {:error, reason} -> {:ok, %{content: Jason.encode!(%{error: reason})}}
+      end
     end)
   end
 
@@ -101,15 +97,13 @@ defmodule Taskweft.MCP.Server do
     )
 
     handler(fn args, state ->
-      guarded(state, fn ->
-        with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
-             {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
-             {:ok, domain_normalized} <- Taskweft.validate(Jason.encode!(compiled)) do
-          {:ok, %JasonCoder.result(data: domain_normalized)}
-        else
-          {:error, reason} -> {:ok, %JasonCoder.error{message: reason}}
-        end
-      end)
+      with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+           {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
+           {:ok, domain_normalized} <- Taskweft.validate(Jason.encode!(compiled)) do
+        {:ok, %{content: Jason.encode!(domain_normalized)}}
+      else
+        {:error, reason} -> {:ok, %{content: Jason.encode!(%{error: reason})}}
+      end
     end)
   end
 
