@@ -49,8 +49,12 @@ defmodule Taskweft.DSL do
   """
   @spec compile(String.t()) :: compile_result()
   def compile(dsl_source) when is_binary(dsl_source) do
-    dsl_source
-    |> Code.string_to_quoted!()
-    |> Taskweft.DSL.SafeParser.parse()
+    case Code.string_to_quoted(dsl_source) do
+      {:ok, ast} ->
+        Taskweft.DSL.SafeParser.parse(ast)
+
+      {:error, {_line, error, _token}} ->
+        {:error, "DSL syntax error: #{error}"}
+    end
   end
 end
