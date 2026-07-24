@@ -28,7 +28,7 @@ defmodule Taskweft.MCP.Server do
           end
 
       **JSON-LD** (full Linked Data):
-"""
+      """
     )
 
     param(:format, :string,
