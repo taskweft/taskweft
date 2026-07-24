@@ -15,10 +15,10 @@ defmodule Taskweft.DSL.SafeParser do
   #
   # Returns {:ok, json_string} or {:error, reason} on failure.
   @spec parse(Macro.t()) :: parse_result()
-  def parse(module_ast) do
-    {:ok, domain_map} = extract_domain_attributes(module_ast)
-    json = Jason.encode!(finalize(domain_map))
-    {:ok, json}
+  def parse({:defmodule, _, [_, [do: block]]}) do
+    with {:ok, domain_map} <- extract_domain_attributes(block) do
+      {:ok, Jason.encode!(finalize(domain_map))}
+    end
   end
 
   defp extract_domain_attributes({:__block__, _, attributes}) do
