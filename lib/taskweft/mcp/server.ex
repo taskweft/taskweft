@@ -36,7 +36,7 @@ defmodule Taskweft.MCP.Server do
       description: "Parse format - 'dsl' for Elixir DSL or 'json' for JSON-LD"
     )
 
-    handler(fn args, state ->
+    handle_with(fn args, state ->
       with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
            {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
            plan_json <- Jason.encode!(Map.get(compiled, :plan) || []),
@@ -71,7 +71,7 @@ defmodule Taskweft.MCP.Server do
       description: "Step index to replan from (-1 for full replan)."
     )
 
-    handler(fn args, state ->
+    handle_with(fn args, state ->
       with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
            {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
            steps <- Jason.decode!(args[:plan_json]),
@@ -96,7 +96,7 @@ defmodule Taskweft.MCP.Server do
       description: "Parse format - 'dsl' for Elixir DSL or 'json' for JSON-LD"
     )
 
-    handler(fn args, state ->
+    handle_with(fn args, state ->
       with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
            {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
            {:ok, domain_normalized} <- Taskweft.validate(Jason.encode!(compiled)) do
