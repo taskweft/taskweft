@@ -145,10 +145,13 @@ defmodule Taskweft.DSL.SafeParser do
   end
 
   defp to_string_todo_list(list) when is_list(list) do
-    Enum.map(list, fn item ->
+    list
+    |> Enum.map(fn item ->
       case item do
-        [call | rest] when is_binary(call) ->
-          [to_string(call) | Enum.map(rest, &to_string/1)]
+        [first | others] when is_binary(first) ->
+          list_string = to_string(first)
+          args_string = Enum.map_join(others, ",", &to_string/1)
+          "[" <> list_string <> ", " <> args_string <> "]"
 
         %{goal: goals} when is_list(goals) ->
           %{"goal" => Enum.map(goals, &to_string_goal/1)}
