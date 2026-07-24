@@ -53,8 +53,9 @@ defmodule Taskweft.MCP.Server do
     )
 
     handle(fn args, _state ->
-      with {:ok, domain_dsl} <-
-             parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+      with {:ok, raw} <- fetch_param(args, :domain_dsl),
+           {:ok, domain_dsl} <-
+             parse_domain_input(raw, Map.get(args, :format, "dsl")),
            {:ok, validated} <- validate_domain(domain_dsl),
            explain = Map.get(args, :explain, false),
            {:ok, result} <- do_plan(validated, explain) do
@@ -88,10 +89,11 @@ defmodule Taskweft.MCP.Server do
     )
 
     handle(fn args, _state ->
-      with {:ok, domain_dsl} <-
-             parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+      with {:ok, raw} <- fetch_param(args, :domain_dsl),
+           {:ok, domain_dsl} <-
+             parse_domain_input(raw, Map.get(args, :format, "dsl")),
            {:ok, validated} <- validate_domain(domain_dsl),
-           plan_str = Map.fetch!(args, :plan_json),
+           {:ok, plan_str} <- fetch_param(args, :plan_json),
            fail_step = Map.get(args, :fail_step, -1),
            {:ok, result} <- Taskweft.replan(validated, plan_str, fail_step) do
         {:ok, %{content: result}}
@@ -114,8 +116,9 @@ defmodule Taskweft.MCP.Server do
     )
 
     handle(fn args, _state ->
-      with {:ok, domain_dsl} <-
-             parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+      with {:ok, raw} <- fetch_param(args, :domain_dsl),
+           {:ok, domain_dsl} <-
+             parse_domain_input(raw, Map.get(args, :format, "dsl")),
            {:ok, validated} <- validate_domain(domain_dsl) do
         {:ok, %{content: validated}}
       else
@@ -156,6 +159,15 @@ defmodule Taskweft.MCP.Server do
   # Plan a domain. If explain is true, include the explain tree.
   defp do_plan(domain_json, true), do: Taskweft.plan_explain(domain_json)
   defp do_plan(domain_json, false), do: Taskweft.plan(domain_json)
+
+  # Safe param fetch — returns {:error, ...} instead of raising KeyError.
+  defp fetch_param(args, key) do
+    case Map.fetch(args, key) do
+      {:ok, value} when not is_nil(value) -> {:ok, value}
+      {:ok, nil} -> {:error, "missing required parameter: #{key}"}
+      :error -> {:error, "missing required parameter: #{key}"}
+    end
+  end
 
   # Encode an error reason as safe JSON — never raise, never crash.
   # Non-encodable values (tuples, pids, refs) become inspect strings.
