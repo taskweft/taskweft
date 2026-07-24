@@ -176,12 +176,12 @@ defmodule Taskweft.DSL.SafeParser do
   defp to_string_expr(%{pointer_get: path}), do: %{"type" => "pointer/get", "pointer" => to_string(path)}
   defp to_string_expr(_other), do: {:error, "invalid expression"}
 
-  defp finalize(domain) do
-    domain
+  defp finalize(_domain) do
+    _domain
     |> Map.delete("capabilities")
     |> then(fn d ->
-      if Map.has_key?(domain, "capabilities") do
-        Map.put(d, "capabilities", domain["capabilities"])
+      if Map.has_key?(_domain, "capabilities") do
+        Map.put(d, "capabilities", _domain["capabilities"])
       else
         d
       end
