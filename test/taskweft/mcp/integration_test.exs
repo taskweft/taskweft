@@ -48,7 +48,7 @@ defmodule Taskweft.MCP.IntegrationTest do
 
   describe "plan tool" do
     test "returns golden plan for blocks_world", %{client: client} do
-      domain = File.read!("priv/plans/domains/blocks_world.jsonld")
+      domain_dsl = File.read!("priv/plans/domains/blocks_world_dsl.ex")
       problem = File.read!("priv/plans/problems/blocks_world_1a.jsonld")
 
       golden =
@@ -56,10 +56,7 @@ defmodule Taskweft.MCP.IntegrationTest do
           File.read!("priv/plans/expected/blocks_world__blocks_world_1a_expected.json")
         )
 
-      merged =
-        Jason.decode!(domain) |> Map.merge(Jason.decode!(problem)) |> Jason.encode!()
-
-      {:ok, content} = Client.call_tool(client, "plan", %{domain_json: merged})
+      {:ok, content} = Client.call_tool(client, "plan", %{domain_dsl: domain_dsl})
       plan = decode_plan(content)
 
       assert plan["plan"] == golden["plan"],
