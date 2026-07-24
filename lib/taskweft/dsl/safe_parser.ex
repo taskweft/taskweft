@@ -177,12 +177,12 @@ defmodule Taskweft.DSL.SafeParser do
   defp to_string_expr(_other), do: {:error, "invalid expression"}
 
   defp finalize(domain) do
-    _domain = domain
-    _domain
+    temp_domain = domain
+    temp_domain
     |> Map.delete("capabilities")
     |> then(fn d ->
-      if Map.has_key?(_domain, "capabilities") do
-        Map.put(d, "capabilities", _domain["capabilities"])
+      if Map.has_key?(temp_domain, "capabilities") do
+        Map.put(d, "capabilities", temp_domain["capabilities"])
       else
         d
       end
