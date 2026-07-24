@@ -60,7 +60,7 @@ defmodule Taskweft.MCP.Server do
            {:ok, result} <- do_plan(validated, explain) do
         {:ok, %{content: result}}
       else
-        {:error, reason} -> {:ok, %{content: Jason.encode!(%{error: reason})}}
+        {:error, reason} -> {:ok, %{content: encode_error(reason)}}
       end
     end)
   end
@@ -96,7 +96,7 @@ defmodule Taskweft.MCP.Server do
            {:ok, result} <- Taskweft.replan(validated, plan_str, fail_step) do
         {:ok, %{content: result}}
       else
-        {:error, reason} -> {:ok, %{content: Jason.encode!(%{error: reason})}}
+        {:error, reason} -> {:ok, %{content: encode_error(reason)}}
       end
     end)
   end
@@ -119,7 +119,7 @@ defmodule Taskweft.MCP.Server do
            {:ok, validated} <- validate_domain(domain_dsl) do
         {:ok, %{content: validated}}
       else
-        {:error, reason} -> {:ok, %{content: Jason.encode!(%{error: reason})}}
+        {:error, reason} -> {:ok, %{content: encode_error(reason)}}
       end
     end)
   end
@@ -156,4 +156,13 @@ defmodule Taskweft.MCP.Server do
   # Plan a domain. If explain is true, include the explain tree.
   defp do_plan(domain_json, true), do: Taskweft.plan_explain(domain_json)
   defp do_plan(domain_json, false), do: Taskweft.plan(domain_json)
+
+  # Encode an error reason as safe JSON — never raise, never crash.
+  # Non-encodable values (tuples, pids, refs) become inspect strings.
+  defp encode_error(reason) do
+    case Jason.encode(%{error: to_string(reason)}) do
+      {:ok, json} -> json
+      {:error, _} -> ~s({"error":"internal error"})
+    end
+  end
 end
