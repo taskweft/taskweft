@@ -84,8 +84,7 @@ defmodule Taskweft.MCP.Server do
     )
 
     param(:fail_step, :integer,
-      default: -1,
-      description: "Step index to replan from (-1 for full replan)."
+      description: "Step index to replan from (0-based, defaults to full replan if omitted)."
     )
 
     handle(fn args, _state ->
