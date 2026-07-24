@@ -1,0 +1,12 @@
+[project]
+name = "mcp-qa"
+channels = ["conda-forge"]
+platforms = ["win-64"]
+
+[tasks]
+check = "python mcp_qa.py"
+
+[dependencies]
+python = ">=3.11"
+mcp = ">=1.6.0"
+httpx = ">=0.28.0"

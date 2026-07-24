@@ -6,11 +6,6 @@ defmodule Taskweft.MCP.Server do
   MCP server for Taskweft.
 
   RECTGTN HTN planner exposed as MCP tools (`plan`, `replan`, `validate`).
-
-  ## Two call paths
-
-  - **Runtime**: `mix taskweft.mcp` (or `taskweft mcp`) starts the HTTP server.
-  - **Training time**: Python optimization loops call these tools via MCP.
   """
 
   use ExMCP.Server.Handler
@@ -25,7 +20,7 @@ defmodule Taskweft.MCP.Server do
       description: """
       A RECTGTN HTN domain in Elixir DSL or JSON-LD format.
 
-      **Elixir DSL** (preferred - valid Elixir code with module attributes):
+      **Elixir DSL** (preferred — valid Elixir code with module attributes):
 
           defmodule MyDomain do
             use Taskweft.DSL
@@ -44,20 +39,13 @@ defmodule Taskweft.MCP.Server do
 
     param(:format, :string,
       default: "dsl",
-      description: "Parse format - 'dsl' for Elixir DSL or 'json' for JSON-LD"
-    )
-
-    param(:explain, :boolean,
-      default: false,
-      description: "If true, include explain tree in the plan response"
+      description: "Parse format — 'dsl' for Elixir DSL or 'json' for JSON-LD"
     )
 
     handle(fn args, _state ->
-      with {:ok, domain_dsl} <-
-             parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+      with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
            {:ok, validated} <- validate_domain(domain_dsl),
-           explain = Map.get(args, :explain, false),
-           {:ok, result} <- do_plan(validated, explain) do
+           {:ok, result} <- Taskweft.plan(validated) do
         {:ok, %{content: result}}
       else
         {:error, reason} -> {:ok, %{content: Jason.encode!(%{error: reason})}}
@@ -74,7 +62,7 @@ defmodule Taskweft.MCP.Server do
 
     param(:format, :string,
       default: "dsl",
-      description: "Parse format - 'dsl' for Elixir DSL or 'json' for JSON-LD"
+      description: "Parse format — 'dsl' for Elixir DSL or 'json' for JSON-LD"
     )
 
     param(:plan_json, :string,
@@ -88,8 +76,7 @@ defmodule Taskweft.MCP.Server do
     )
 
     handle(fn args, _state ->
-      with {:ok, domain_dsl} <-
-             parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+      with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
            {:ok, validated} <- validate_domain(domain_dsl),
            plan_str = Map.fetch!(args, :plan_json),
            fail_step = Map.get(args, :fail_step, -1),
@@ -110,12 +97,11 @@ defmodule Taskweft.MCP.Server do
 
     param(:format, :string,
       default: "dsl",
-      description: "Parse format - 'dsl' for Elixir DSL or 'json' for JSON-LD"
+      description: "Parse format — 'dsl' for Elixir DSL or 'json' for JSON-LD"
     )
 
     handle(fn args, _state ->
-      with {:ok, domain_dsl} <-
-             parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+      with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
            {:ok, validated} <- validate_domain(domain_dsl) do
         {:ok, %{content: validated}}
       else
@@ -152,8 +138,4 @@ defmodule Taskweft.MCP.Server do
       {:error, reason} -> {:error, "Validation error: #{reason}"}
     end
   end
-
-  # Plan a domain. If explain is true, include the explain tree.
-  defp do_plan(domain_json, true), do: Taskweft.plan_explain(domain_json)
-  defp do_plan(domain_json, false), do: Taskweft.plan(domain_json)
 end
