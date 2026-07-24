@@ -4,6 +4,13 @@
 defmodule Taskweft.MCP.Server do
   @moduledoc """
   MCP server for Taskweft.
+
+  RECTGTN HTN planner exposed as MCP tools (`plan`, `replan`, `validate`).
+
+  ## Two call paths
+
+  - **Runtime**: `mix taskweft.mcp` (or `taskweft mcp`) starts the HTTP server.
+  - **Training time**: Python optimization loops call these tools via MCP.
   """
 
   use ExMCP.Server.Handler
@@ -28,6 +35,10 @@ defmodule Taskweft.MCP.Server do
           end
 
       **JSON-LD** (full Linked Data):
+
+          {"@context": {...}, "@type": "domain:Definition", "name": "...", ...}
+
+      Pass "format" => "dsl" for DSL input, "json" for JSON-LD. Defaults to "dsl".
       """
     )
 
@@ -36,13 +47,18 @@ defmodule Taskweft.MCP.Server do
       description: "Parse format - 'dsl' for Elixir DSL or 'json' for JSON-LD"
     )
 
-    handle_with(fn args, state ->
-      with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
-           {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
-           plan_json <- Jason.encode!(Map.get(compiled, :plan) || []),
-           explain_json <- Jason.encode!(Map.get(compiled, :explain_tree) || %{}),
-           {:ok, result} <- Taskweft.plan_with_optional_explain(plan_json, explain_json) do
-        {:ok, %{content: Jason.encode!(result)}}
+    param(:explain, :boolean,
+      default: false,
+      description: "If true, include explain tree in the plan response"
+    )
+
+    handle(fn args, _state ->
+      with {:ok, domain_dsl} <-
+             parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+           {:ok, validated} <- validate_domain(domain_dsl),
+           explain = Map.get(args, :explain, false),
+           {:ok, result} <- do_plan(validated, explain) do
+        {:ok, %{content: result}}
       else
         {:error, reason} -> {:ok, %{content: Jason.encode!(%{error: reason})}}
       end
@@ -63,7 +79,7 @@ defmodule Taskweft.MCP.Server do
 
     param(:plan_json, :string,
       required: true,
-      description: "JSON string containing the original plan from plan tool."
+      description: "JSON string containing the original plan steps array."
     )
 
     param(:fail_step, :integer,
@@ -71,13 +87,14 @@ defmodule Taskweft.MCP.Server do
       description: "Step index to replan from (-1 for full replan)."
     )
 
-    handle_with(fn args, state ->
-      with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
-           {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
-           steps <- Jason.decode!(args[:plan_json]),
-           fail_step <- Map.get(args, :fail_step, -1),
-           {:ok, result} <- Taskweft.replan(steps, Jason.encode!(compiled), fail_step) do
-        {:ok, %{content: Jason.encode!(result)}}
+    handle(fn args, _state ->
+      with {:ok, domain_dsl} <-
+             parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+           {:ok, validated} <- validate_domain(domain_dsl),
+           plan_str = Map.fetch!(args, :plan_json),
+           fail_step = Map.get(args, :fail_step, -1),
+           {:ok, result} <- Taskweft.replan(validated, plan_str, fail_step) do
+        {:ok, %{content: result}}
       else
         {:error, reason} -> {:ok, %{content: Jason.encode!(%{error: reason})}}
       end
@@ -96,11 +113,11 @@ defmodule Taskweft.MCP.Server do
       description: "Parse format - 'dsl' for Elixir DSL or 'json' for JSON-LD"
     )
 
-    handle_with(fn args, state ->
-      with {:ok, domain_dsl} <- parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
-           {:ok, compiled} <- Taskweft.DSL.compile(domain_dsl),
-           {:ok, domain_normalized} <- Taskweft.validate(Jason.encode!(compiled)) do
-        {:ok, %{content: Jason.encode!(domain_normalized)}}
+    handle(fn args, _state ->
+      with {:ok, domain_dsl} <-
+             parse_domain_input(Map.fetch!(args, :domain_dsl), Map.get(args, :format, "dsl")),
+           {:ok, validated} <- validate_domain(domain_dsl) do
+        {:ok, %{content: validated}}
       else
         {:error, reason} -> {:ok, %{content: Jason.encode!(%{error: reason})}}
       end
@@ -109,23 +126,34 @@ defmodule Taskweft.MCP.Server do
 
   # ---------- HELPERS ----------
 
+  # Parse raw input string into a domain JSON string.
+  # Accepts 'dsl' or 'json'.
   defp parse_domain_input(raw, "json") when is_binary(raw) do
+    # Validate JSON but pass through the JSON string
     case Jason.decode(raw) do
-      {:ok, json} -> {:ok, Jason.encode!(json)}
-      {:error, _} -> {:error, "Invalid JSON"}
-    end
-  end
-
-  defp parse_domain_input(raw, "yaml") when is_binary(raw) do
-    case YamlElixir.read_all_from_string(raw) do
-      {:ok, yaml} -> {:ok, Jason.encode!(yaml)}
-      {:error, _} -> {:error, "Invalid YAML"}
+      {:ok, _map} -> {:ok, raw}
+      {:error, reason} -> {:error, "invalid JSON-LD: #{reason}"}
     end
   end
 
   defp parse_domain_input(raw, "dsl") when is_binary(raw) do
-    {:ok, raw}
+    Taskweft.DSL.compile(raw)
   end
 
-  defp parse_domain_input(_raw, _format), do: {:error, "Invalid format. Use 'dsl', 'json', or 'yaml'"}
+  defp parse_domain_input(_raw, format) do
+    {:error, ~s(unknown format: #{inspect(format)}. Use "dsl" or "json".)}
+  end
+
+  # Validate a domain JSON string using the JSON-LD loader.
+  # Returns {:ok, normalized_json_string} or {:error, reason}.
+  defp validate_domain(domain_json) do
+    case Taskweft.JSONLD.Loader.load_string(domain_json) do
+      {:ok, normalized} -> {:ok, normalized}
+      {:error, reason} -> {:error, "Validation error: #{reason}"}
+    end
+  end
+
+  # Plan a domain. If explain is true, include the explain tree.
+  defp do_plan(domain_json, true), do: Taskweft.plan_explain(domain_json)
+  defp do_plan(domain_json, false), do: Taskweft.plan(domain_json)
 end

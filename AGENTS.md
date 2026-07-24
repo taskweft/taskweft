@@ -25,7 +25,7 @@ mix test --include property   # ExUnit + PropCheck property tests
 Two call paths — see `Taskweft.MCP.Server` moduledoc for details:
 
 - **Runtime**: `mix taskweft.mcp` (or `taskweft mcp`) starts the HTTP server; `Taskweft.MCP.Client` calls peer MCP servers.
-- **Training time**: DSPy calls these tools from Python optimization loops (GEPA, BootstrapFewShot).
+- **Training time**: Python optimization loops call these tools via MCP.
 
 ## Conventions
 

@@ -49,6 +49,8 @@ defmodule Taskweft.DSL do
   """
   @spec compile(String.t()) :: compile_result()
   def compile(dsl_source) when is_binary(dsl_source) do
-    Taskweft.DSL.SafeParser.parse(dsl_source)
+    dsl_source
+    |> Code.string_to_quoted!()
+    |> Taskweft.DSL.SafeParser.parse()
   end
 end

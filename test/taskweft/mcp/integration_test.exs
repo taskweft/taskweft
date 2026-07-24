@@ -49,7 +49,6 @@ defmodule Taskweft.MCP.IntegrationTest do
   describe "plan tool" do
     test "returns golden plan for blocks_world", %{client: client} do
       domain_dsl = File.read!("priv/plans/domains/blocks_world_dsl.ex")
-      problem = File.read!("priv/plans/problems/blocks_world_1a.jsonld")
 
       golden =
         Jason.decode!(

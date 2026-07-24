@@ -11,19 +11,14 @@ defmodule Taskweft.DSL.SafeParser do
 
   @type parse_result :: {:ok, String.t()} | {:error, String.t()}
 
-  @doc """
-  Parse an Elixir module AST and extract domain attributes into RECTGTN JSON-LD.
-
-  Returns {:ok, json_string} or {:error, reason} on failure.
-  """
-  @spec parse(Elixir.t()) :: parse_result()
+  # Parse an Elixir module AST and extract domain attributes into RECTGTN JSON-LD.
+  #
+  # Returns {:ok, json_string} or {:error, reason} on failure.
+  @spec parse(Macro.t()) :: parse_result()
   def parse(module_ast) do
-    with {:ok, domain_map} <- extract_domain_attributes(module_ast) do
-      json = Jason.encode!(finalize(domain_map))
-      {:ok, json}
-    else
-      {:error, reason} -> {:error, reason}
-    end
+    {:ok, domain_map} = extract_domain_attributes(module_ast)
+    json = Jason.encode!(finalize(domain_map))
+    {:ok, json}
   end
 
   defp extract_domain_attributes({:__block__, _, attributes}) do
@@ -137,8 +132,11 @@ defmodule Taskweft.DSL.SafeParser do
   defp to_string_guard({:condition, _, [type, args]}) do
     cond =
       case args do
-        [expr] -> %{"type" => to_string(type), "a" => to_string_expr(expr)}
-        [expr1, expr2] -> %{"type" => to_string(type), "a" => to_string_expr(expr1), "b" => to_string_expr(expr2)}
+        [expr] ->
+          %{"type" => to_string(type), "a" => to_string_expr(expr)}
+
+        [expr1, expr2] ->
+          %{"type" => to_string(type), "a" => to_string_expr(expr1), "b" => to_string_expr(expr2)}
       end
 
     cond
@@ -173,11 +171,15 @@ defmodule Taskweft.DSL.SafeParser do
   defp to_string_expr(str) when is_binary(str), do: str
   defp to_string_expr(num) when is_integer(num), do: to_string(num)
   defp to_string_expr(num) when is_float(num), do: to_string(num)
-  defp to_string_expr(%{pointer_get: path}), do: %{"type" => "pointer/get", "pointer" => to_string(path)}
+
+  defp to_string_expr(%{pointer_get: path}),
+    do: %{"type" => "pointer/get", "pointer" => to_string(path)}
+
   defp to_string_expr(_other), do: {:error, "invalid expression"}
 
   defp finalize(domain) do
     temp_domain = domain
+
     temp_domain
     |> Map.delete("capabilities")
     |> then(fn d ->
