@@ -347,15 +347,6 @@ defmodule Taskweft.Iso8601DurationPropTest do
     ours == spec or input == "P"
   end
 
-  # Legacy regex catalogue retained for reference; no longer consulted.
-  defp _known_divergence?(input) do
-    cond do
-      Regex.match?(~r/\d\.\d+[YMWDH]/, input) -> true
-      Regex.match?(~r/\.\d{4,}S/, input) -> true
-      true -> false
-    end
-  end
-
   # Mutations applied to a generated valid duration string. Each variant
   # picks one position in the input. `apply_mutation/2` clamps out-of-range
   # indices so generators don't have to know the input length.
